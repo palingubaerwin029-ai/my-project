@@ -9,28 +9,81 @@ import {
   serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import s from "../styles/Admin.module.css";
 
-const STATUS_COLORS = {
-  unverified: "#8899BB",
-  pending: "#FFB800",
-  verified: "#00D4AA",
-  rejected: "#FF4444",
+// ── Status config ──────────────────────────────────────────────────────────
+const STATUS = {
+  unverified: {
+    label: "Unverified",
+    color: "#64748B",
+    bg: "rgba(100,116,139,0.12)",
+    icon: "—",
+    border: "rgba(100,116,139,0.2)",
+  },
+  pending: {
+    label: "Pending",
+    color: "#F59E0B",
+    bg: "rgba(245,158,11,0.12)",
+    icon: "⏳",
+    border: "rgba(245,158,11,0.25)",
+  },
+  verified: {
+    label: "Verified",
+    color: "#10B981",
+    bg: "rgba(16,185,129,0.12)",
+    icon: "✓",
+    border: "rgba(16,185,129,0.25)",
+  },
+  rejected: {
+    label: "Rejected",
+    color: "#EF4444",
+    bg: "rgba(239,68,68,0.12)",
+    icon: "✕",
+    border: "rgba(239,68,68,0.25)",
+  },
 };
 
-const STATUS_ICONS = {
-  unverified: "⚪",
-  pending: "🟡",
-  verified: "🟢",
-  rejected: "🔴",
-};
+const TABS = [
+  { key: "pending", label: "Pending Review", urgent: true },
+  { key: "verified", label: "Verified", urgent: false },
+  { key: "rejected", label: "Rejected", urgent: false },
+  { key: "unverified", label: "Unverified", urgent: false },
+  { key: "all", label: "All", urgent: false },
+];
+
+const AVATARS = [
+  "#3B82F6",
+  "#10B981",
+  "#F97316",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+];
+const avatarColor = (uid) =>
+  AVATARS[(uid?.charCodeAt(0) || 0) % AVATARS.length];
+const initials = (name) =>
+  name
+    ?.split(" ")
+    .map((n) => n[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2) || "?";
+const fmt = (ts) =>
+  ts?.toDate?.()?.toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }) || "—";
 
 export default function Verification() {
   const [users, setUsers] = useState([]);
   const [selected, setSelected] = useState(null);
   const [filter, setFilter] = useState("pending");
-  const [rejectionReason, setRejectionReason] = useState("");
+  const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
-  const [actionDone, setActionDone] = useState(null); // 'approved' | 'rejected'
+  const [feedback, setFeedback] = useState(null);
+  const [search, setSearch] = useState("");
+  const [imgModal, setImgModal] = useState(false);
 
   useEffect(() => {
     const unsub = onSnapshot(
@@ -39,10 +92,6 @@ export default function Verification() {
     );
     return unsub;
   }, []);
-
-  const filtered = users.filter((u) =>
-    filter === "all" ? true : (u.verificationStatus || "unverified") === filter,
-  );
 
   const counts = {
     all: users.length,
@@ -54,77 +103,124 @@ export default function Verification() {
     ).length,
   };
 
-  // ── Accept ────────────────────────────────────────────────────────────────
-  const handleAccept = async () => {
+  const filtered = users
+    .filter((u) => {
+      const matchTab =
+        filter === "all" || (u.verificationStatus || "unverified") === filter;
+      const q = search.toLowerCase();
+      const matchSearch =
+        !q ||
+        u.name?.toLowerCase().includes(q) ||
+        u.email?.toLowerCase().includes(q);
+      return matchTab && matchSearch;
+    })
+    .sort((a, b) => {
+      const order = { pending: 0, unverified: 1, rejected: 2, verified: 3 };
+      return (
+        (order[a.verificationStatus] || 9) - (order[b.verificationStatus] || 9)
+      );
+    });
+
+  // ── Approve ────────────────────────────────────────────────────────────
+  const handleApprove = async () => {
     if (!selected) return;
     setSaving(true);
     try {
       await updateDoc(doc(db, "users", selected.id), {
-        isVerified: true,
         verificationStatus: "verified",
+        isVerified: true,
         verifiedAt: serverTimestamp(),
         rejectionReason: null,
       });
-      setActionDone("approved");
+      setFeedback("approved");
       setTimeout(() => {
-        setActionDone(null);
+        setFeedback(null);
         setSelected(null);
-      }, 2000);
+        setReason("");
+      }, 2500);
     } catch (err) {
       alert("Error: " + err.message);
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
   };
 
-  // ── Reject ────────────────────────────────────────────────────────────────
+  // ── Reject ─────────────────────────────────────────────────────────────
   const handleReject = async () => {
     if (!selected) return;
-    if (!rejectionReason.trim()) {
-      alert("Please enter a reason for rejection.");
+    if (!reason.trim()) {
+      alert("Please enter a rejection reason.");
       return;
     }
     setSaving(true);
     try {
       await updateDoc(doc(db, "users", selected.id), {
-        isVerified: false,
         verificationStatus: "rejected",
-        rejectionReason: rejectionReason.trim(),
+        isVerified: false,
+        rejectionReason: reason.trim(),
         verifiedAt: null,
       });
-      setActionDone("rejected");
+      setFeedback("rejected");
       setTimeout(() => {
-        setActionDone(null);
+        setFeedback(null);
         setSelected(null);
-        setRejectionReason("");
-      }, 2000);
+        setReason("");
+      }, 2500);
     } catch (err) {
       alert("Error: " + err.message);
-    } finally {
-      setSaving(false);
     }
+    setSaving(false);
+  };
+
+  // ── Revoke (un-verify a previously verified user) ──────────────────────
+  const handleRevoke = async () => {
+    if (!selected) return;
+    if (!window.confirm(`Revoke verification for ${selected.name}?`)) return;
+    setSaving(true);
+    try {
+      await updateDoc(doc(db, "users", selected.id), {
+        verificationStatus: "unverified",
+        isVerified: false,
+        verifiedAt: null,
+        rejectionReason: null,
+      });
+      setSelected(null);
+    } catch (err) {
+      alert("Error: " + err.message);
+    }
+    setSaving(false);
   };
 
   const currentStatus = selected?.verificationStatus || "unverified";
+  const cfg = STATUS[currentStatus] || STATUS.unverified;
 
   return (
-    <div style={S.page}>
+    <div className={s.page}>
       {/* ── Header ── */}
-      <div style={S.header}>
+      <div className={s.pageHeader}>
         <div>
-          <h1 style={S.title}>🪪 Identity Verification</h1>
-          <p style={S.subtitle}>
-            Review and verify citizen-submitted government IDs
+          <h1 className={s.pageTitle}>Identity Verification</h1>
+          <p className={s.pageSubtitle}>
+            Review and approve citizen identity submissions
           </p>
         </div>
         {counts.pending > 0 && (
-          <div style={S.pendingAlert}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              backgroundColor: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.25)",
+              borderRadius: 12,
+              padding: "10px 16px",
+            }}
+          >
             <span style={{ fontSize: 18 }}>⚠️</span>
             <div>
-              <div style={{ color: "#FFB800", fontWeight: 800, fontSize: 16 }}>
+              <div style={{ color: "#F59E0B", fontWeight: 800, fontSize: 15 }}>
                 {counts.pending} Pending
               </div>
-              <div style={{ color: "#8899BB", fontSize: 12 }}>
+              <div style={{ color: "var(--text-3)", fontSize: 12 }}>
                 Awaiting your review
               </div>
             </div>
@@ -132,86 +228,152 @@ export default function Verification() {
         )}
       </div>
 
-      {/* ── Filter Tabs ── */}
-      <div style={S.tabs}>
+      {/* ── Stats row ── */}
+      <div className={s.statsRow} style={{ "--cols": "repeat(4,1fr)" }}>
         {[
-          { key: "pending", label: "Pending" },
-          { key: "verified", label: "Verified" },
-          { key: "rejected", label: "Rejected" },
-          { key: "unverified", label: "Unverified" },
-          { key: "all", label: "All" },
-        ].map((f) => {
-          const color = STATUS_COLORS[f.key] || "#1A6BFF";
-          const active = filter === f.key;
-          return (
-            <button
-              key={f.key}
-              style={{
-                ...S.tab,
-                ...(active
-                  ? {
-                      backgroundColor: color + "22",
-                      borderColor: color,
-                      color,
-                    }
-                  : {}),
-              }}
-              onClick={() => {
-                setFilter(f.key);
-                setSelected(null);
-              }}
-            >
-              {STATUS_ICONS[f.key] || "📋"} {f.label}
-              <span
-                style={{
-                  ...S.tabCount,
-                  backgroundColor: active ? color + "33" : "#1E3355",
-                  color: active ? color : "#8899BB",
-                }}
-              >
-                {counts[f.key]}
-              </span>
-            </button>
-          );
-        })}
+          { label: "Pending Review", value: counts.pending, color: "#F59E0B" },
+          { label: "Verified", value: counts.verified, color: "#10B981" },
+          { label: "Rejected", value: counts.rejected, color: "#EF4444" },
+          { label: "Unverified", value: counts.unverified, color: "#64748B" },
+        ].map((x, i) => (
+          <div
+            key={i}
+            className={s.statCard}
+            style={{ "--accent-color": x.color }}
+          >
+            <div className={s.statValue}>{x.value}</div>
+            <div className={s.statLabel}>{x.label}</div>
+          </div>
+        ))}
       </div>
 
-      {/* ── Main Layout ── */}
+      {/* ── Tabs + Search ── */}
       <div
         style={{
-          ...S.layout,
-          gridTemplateColumns: selected ? "1fr 420px" : "1fr",
+          display: "flex",
+          gap: 10,
+          marginBottom: 16,
+          flexWrap: "wrap",
+          alignItems: "center",
         }}
       >
-        {/* ── Citizens List ── */}
-        <div style={S.listCard}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {TABS.map((tab) => {
+            const active = filter === tab.key;
+            const sc = STATUS[tab.key];
+            return (
+              <button
+                key={tab.key}
+                style={{
+                  padding: "7px 14px",
+                  borderRadius: 99,
+                  fontSize: 12,
+                  fontWeight: active ? 700 : 500,
+                  cursor: "pointer",
+                  backgroundColor: active
+                    ? (sc?.color || "var(--blue)") + "20"
+                    : "transparent",
+                  border: `1px solid ${active ? sc?.color || "var(--blue)" : "var(--border)"}`,
+                  color: active
+                    ? sc?.color || "var(--blue-light)"
+                    : "var(--text-2)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+                onClick={() => {
+                  setFilter(tab.key);
+                  setSelected(null);
+                }}
+              >
+                {tab.urgent && counts.pending > 0 && tab.key === "pending" && (
+                  <span
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      background: "#F59E0B",
+                      display: "inline-block",
+                    }}
+                  />
+                )}
+                {tab.label}
+                <span
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    borderRadius: 99,
+                    padding: "1px 7px",
+                    fontSize: 11,
+                  }}
+                >
+                  {counts[tab.key]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {/* Search */}
+        <div
+          style={{
+            flex: 1,
+            minWidth: 200,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: "var(--surface-2)",
+            border: "1px solid var(--border)",
+            borderRadius: 10,
+            padding: "8px 12px",
+          }}
+        >
+          <span style={{ color: "var(--text-3)" }}>🔍</span>
+          <input
+            style={{
+              flex: 1,
+              background: "none",
+              border: "none",
+              outline: "none",
+              color: "var(--text-1)",
+              fontSize: 13,
+            }}
+            placeholder="Search citizens…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {/* ── Main layout ── */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: selected ? "1fr 380px" : "1fr",
+          gap: 16,
+        }}
+      >
+        {/* ── Table ── */}
+        <div className={s.tableWrap}>
           {filtered.length === 0 ? (
-            <div style={S.empty}>
-              <div style={{ fontSize: 48 }}>
-                {filter === "pending"
-                  ? "✅"
-                  : filter === "verified"
-                    ? "🏆"
-                    : "📭"}
-              </div>
-              <p style={{ color: "#8899BB", marginTop: 12, fontSize: 15 }}>
-                No {filter} submissions
+            <div className={s.empty}>
+              <div className={s.emptyIcon}>✅</div>
+              <p className={s.emptyTitle}>
+                No {filter === "all" ? "" : filter} submissions
               </p>
             </div>
           ) : (
-            <table style={S.table}>
-              <thead>
-                <tr style={{ backgroundColor: "#162B4D" }}>
+            <table className={s.table}>
+              <thead className={s.thead}>
+                <tr>
                   {[
                     "Citizen",
+                    "Contact",
                     "Barangay",
                     "ID Type",
-                    "ID Number",
                     "Status",
                     "Submitted",
-                    "Action",
+                    "Actions",
                   ].map((h) => (
-                    <th key={h} style={S.th}>
+                    <th key={h} className={s.th}>
                       {h}
                     </th>
                   ))}
@@ -219,120 +381,151 @@ export default function Verification() {
               </thead>
               <tbody>
                 {filtered.map((u) => {
-                  const status = u.verificationStatus || "unverified";
-                  const color = STATUS_COLORS[status];
-                  const isSelected = selected?.id === u.id;
+                  const st = STATUS[u.verificationStatus || "unverified"];
+                  const uid = u.uid || u.id;
+                  const isSel = selected?.id === u.id;
                   return (
                     <tr
                       key={u.id}
-                      style={{
-                        ...S.tr,
-                        ...(isSelected
-                          ? {
-                              backgroundColor: "#1A6BFF11",
-                              borderLeftColor: "#1A6BFF",
-                            }
-                          : {}),
+                      className={`${s.tr} ${s.trClickable} ${isSel ? s.trSelected : ""}`}
+                      onClick={() => {
+                        setSelected(isSel ? null : u);
+                        setReason("");
+                        setFeedback(null);
                       }}
                     >
-                      {/* Citizen */}
-                      <td style={S.td}>
-                        <div style={S.citizenCell}>
-                          <div style={S.avatar}>
-                            {u.name
-                              ?.split(" ")
-                              .map((n) => n[0])
-                              .join("")
-                              .slice(0, 2)
-                              .toUpperCase()}
+                      <td className={s.td}>
+                        <div
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 10,
+                          }}
+                        >
+                          <div
+                            style={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 10,
+                              backgroundColor: avatarColor(uid),
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              color: "#fff",
+                              fontWeight: 700,
+                              fontSize: 12,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {initials(u.name)}
                           </div>
                           <div>
-                            <div style={S.citizenName}>
+                            <div
+                              style={{
+                                fontWeight: 600,
+                                color: "var(--text-1)",
+                                fontSize: 13,
+                              }}
+                            >
                               {u.name}
-                              {u.isVerified && (
-                                <span style={S.verifiedBadge}>✓ Verified</span>
-                              )}
                             </div>
-                            <div style={S.citizenEmail}>{u.email}</div>
+                            <div
+                              style={{
+                                fontSize: 11,
+                                color: "var(--text-3)",
+                                marginTop: 1,
+                              }}
+                            >
+                              {u.email}
+                            </div>
                           </div>
                         </div>
                       </td>
-                      <td style={S.td}>
-                        <span style={S.barangayTag}>{u.barangay || "—"}</span>
+                      <td className={s.td} style={{ fontSize: 12 }}>
+                        {u.phone || "—"}
                       </td>
-                      <td style={{ ...S.td, color: "#fff" }}>
-                        {u.idType || (
-                          <span style={{ color: "#4A5A7A" }}>
-                            Not submitted
-                          </span>
-                        )}
-                      </td>
-                      <td
-                        style={{
-                          ...S.td,
-                          color: "#8899BB",
-                          fontFamily: "monospace",
-                        }}
-                      >
-                        {u.idNumber || "—"}
-                      </td>
-                      <td style={S.td}>
+                      <td className={s.td}>
                         <span
+                          className={s.badge}
                           style={{
-                            ...S.statusBadge,
-                            backgroundColor: color + "22",
-                            color,
+                            background: "rgba(59,130,246,0.1)",
+                            color: "var(--blue-light)",
                           }}
                         >
-                          {STATUS_ICONS[status]} {status}
+                          {u.barangay || "—"}
                         </span>
                       </td>
-                      <td style={{ ...S.td, color: "#8899BB", fontSize: 12 }}>
-                        {u.submittedAt
-                          ?.toDate?.()
-                          ?.toLocaleDateString("en-PH") || "—"}
+                      <td
+                        className={s.td}
+                        style={{
+                          fontSize: 12,
+                          color: u.idType ? "var(--text-1)" : "var(--text-3)",
+                        }}
+                      >
+                        {u.idType || <em>Not submitted</em>}
                       </td>
-                      {/* Action Buttons inline */}
-                      <td style={S.td}>
-                        <div style={S.inlineActions}>
+                      <td className={s.td}>
+                        <span
+                          className={s.badge}
+                          style={{
+                            backgroundColor: st.bg,
+                            color: st.color,
+                            border: `1px solid ${st.border}`,
+                          }}
+                        >
+                          {st.icon} {st.label}
+                        </span>
+                      </td>
+                      <td
+                        className={s.td}
+                        style={{
+                          fontSize: 11,
+                          color: "var(--text-3)",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {fmt(u.submittedAt)}
+                      </td>
+                      <td className={s.td}>
+                        <div style={{ display: "flex", gap: 6 }}>
                           <button
-                            style={S.reviewBtn}
+                            className={`${s.btn} ${s.btnGhost} ${s.btnSm}`}
                             onClick={() => {
-                              setSelected(isSelected ? null : u);
-                              setRejectionReason("");
-                              setActionDone(null);
+                              setSelected(isSel ? null : u);
+                              setReason("");
+                              setFeedback(null);
                             }}
                           >
-                            {isSelected ? "Close" : "🔍 Review"}
+                            {isSel ? "Close" : "Review"}
                           </button>
-                          {/* Quick Accept/Reject for pending */}
-                          {status === "pending" && !isSelected && (
-                            <>
+                          {/* Quick approve for pending */}
+                          {(u.verificationStatus === "pending" ||
+                            u.verificationStatus === "unverified") &&
+                            !isSel && (
                               <button
-                                style={S.quickAcceptBtn}
+                                style={{
+                                  padding: "5px 8px",
+                                  borderRadius: "var(--r-sm)",
+                                  background: "rgba(16,185,129,0.12)",
+                                  border: "1px solid rgba(16,185,129,0.25)",
+                                  color: "#10B981",
+                                  cursor: "pointer",
+                                  fontSize: 13,
+                                }}
+                                title="Quick approve"
                                 onClick={async (e) => {
                                   e.stopPropagation();
                                   await updateDoc(doc(db, "users", u.id), {
-                                    isVerified: true,
                                     verificationStatus: "verified",
+                                    isVerified: true,
                                     verifiedAt: serverTimestamp(),
                                     rejectionReason: null,
                                   });
                                 }}
                               >
-                                ✅
+                                ✓
                               </button>
-                              <button
-                                style={S.quickRejectBtn}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelected(u);
-                                }}
-                              >
-                                ❌
-                              </button>
-                            </>
-                          )}
+                            )}
                         </div>
                       </td>
                     </tr>
@@ -343,588 +536,556 @@ export default function Verification() {
           )}
         </div>
 
-        {/* ── Detail Panel ── */}
+        {/* ── Detail panel ── */}
         {selected && (
-          <div style={S.panel}>
-            {/* Panel Header */}
-            <div style={S.panelHeader}>
+          <div
+            className={s.card}
+            style={{ alignSelf: "start", padding: 0, overflow: "hidden" }}
+          >
+            {/* Panel header */}
+            <div
+              style={{
+                padding: "16px 18px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "flex-start",
+              }}
+            >
               <div>
-                <h3 style={S.panelTitle}>📋 Review Submission</h3>
-                <span
+                <div
                   style={{
-                    ...S.statusBadge,
-                    backgroundColor: STATUS_COLORS[currentStatus] + "22",
-                    color: STATUS_COLORS[currentStatus],
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--text-1)",
+                    marginBottom: 6,
                   }}
                 >
-                  {STATUS_ICONS[currentStatus]} {currentStatus}
+                  Review Submission
+                </div>
+                <span
+                  className={s.badge}
+                  style={{
+                    backgroundColor: cfg.bg,
+                    color: cfg.color,
+                    border: `1px solid ${cfg.border}`,
+                    fontSize: 11,
+                  }}
+                >
+                  {cfg.icon} {cfg.label}
                 </span>
               </div>
               <button
-                style={S.closeBtn}
-                onClick={() => {
-                  setSelected(null);
-                  setActionDone(null);
-                }}
+                className={`${s.btn} ${s.btnGhost} ${s.btnSm}`}
+                onClick={() => setSelected(null)}
               >
                 ✕
               </button>
             </div>
 
-            {/* Citizen Info */}
-            <div style={S.infoCard}>
-              <div style={S.panelAvatar}>
-                {selected.name
-                  ?.split(" ")
-                  .map((n) => n[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()}
-              </div>
-              <div style={S.panelName}>{selected.name}</div>
-              <div style={S.panelEmail}>{selected.email}</div>
-            </div>
-
-            <div style={S.infoGrid}>
-              {[
-                { label: "📞 Phone", value: selected.phone || "—" },
-                { label: "📍 Barangay", value: selected.barangay || "—" },
-                {
-                  label: "🪪 ID Type",
-                  value: selected.idType || "Not submitted",
-                },
-                { label: "🔢 ID Number", value: selected.idNumber || "—" },
-              ].map((item, i) => (
-                <div key={i} style={S.infoRow}>
-                  <div style={S.infoLabel}>{item.label}</div>
-                  <div style={S.infoValue}>{item.value}</div>
+            {/* Citizen info */}
+            <div
+              style={{
+                padding: "14px 18px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 12,
+                  marginBottom: 14,
+                }}
+              >
+                <div
+                  style={{
+                    width: 52,
+                    height: 52,
+                    borderRadius: 16,
+                    backgroundColor: avatarColor(selected.uid || selected.id),
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#fff",
+                    fontWeight: 900,
+                    fontSize: 20,
+                    flexShrink: 0,
+                  }}
+                >
+                  {initials(selected.name)}
                 </div>
-              ))}
+                <div>
+                  <div
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      color: "var(--text-1)",
+                    }}
+                  >
+                    {selected.name}
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--text-3)",
+                      marginTop: 2,
+                    }}
+                  >
+                    {selected.email}
+                  </div>
+                </div>
+              </div>
+
+              {/* Info grid */}
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 0,
+                  background: "var(--surface-2)",
+                  borderRadius: "var(--r-lg)",
+                  border: "1px solid var(--border)",
+                  overflow: "hidden",
+                }}
+              >
+                {[
+                  { label: "Phone", value: selected.phone || "—" },
+                  { label: "Barangay", value: selected.barangay || "—" },
+                  {
+                    label: "ID Type",
+                    value: selected.idType || "Not submitted",
+                  },
+                  { label: "ID No.", value: selected.idNumber || "—" },
+                  { label: "Submitted", value: fmt(selected.submittedAt) },
+                  { label: "Registered", value: fmt(selected.createdAt) },
+                ].map((x, i, arr) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "9px 14px",
+                      borderBottom:
+                        i < arr.length - 1 ? "1px solid var(--border)" : "none",
+                      fontSize: 13,
+                    }}
+                  >
+                    <span style={{ color: "var(--text-3)" }}>{x.label}</span>
+                    <span style={{ color: "var(--text-1)", fontWeight: 500 }}>
+                      {x.value}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* ID Photo */}
-            {selected.idImageUrl ? (
-              <div style={{ marginBottom: 20 }}>
-                <div style={S.idPhotoHeader}>
-                  <span style={S.sectionLabel}>📷 SUBMITTED ID PHOTO</span>
+            <div
+              style={{
+                padding: "14px 18px",
+                borderBottom: "1px solid var(--border)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  marginBottom: 10,
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "var(--text-3)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  Submitted ID Photo
+                </span>
+                {selected.idImageUrl && (
                   <button
-                    style={S.viewFullBtn}
+                    className={`${s.btn} ${s.btnGhost} ${s.btnSm}`}
                     onClick={() => window.open(selected.idImageUrl, "_blank")}
                   >
                     View Full ↗
                   </button>
-                </div>
-                <img src={selected.idImageUrl} alt="ID" style={S.idPhoto} />
+                )}
               </div>
-            ) : (
-              <div style={S.noIdPhoto}>
-                <span style={{ fontSize: 32 }}>📂</span>
-                <p style={{ color: "#8899BB", margin: 0, fontSize: 13 }}>
-                  No ID photo uploaded yet
-                </p>
-              </div>
-            )}
 
-            {/* ════════════════════════════════
-                  ACCEPT / REJECT BUTTONS
-                ════════════════════════════════ */}
-
-            {/* Success feedback */}
-            {actionDone === "approved" && (
-              <div style={S.successBanner}>
-                <span style={{ fontSize: 24 }}>✅</span>
-                <div>
-                  <div
-                    style={{ color: "#00D4AA", fontWeight: 800, fontSize: 16 }}
-                  >
-                    Approved!
-                  </div>
-                  <div style={{ color: "#8899BB", fontSize: 12 }}>
-                    Citizen is now verified
-                  </div>
-                </div>
-              </div>
-            )}
-            {actionDone === "rejected" && (
-              <div style={S.rejectedFeedback}>
-                <span style={{ fontSize: 24 }}>❌</span>
-                <div>
-                  <div
-                    style={{ color: "#FF4444", fontWeight: 800, fontSize: 16 }}
-                  >
-                    Rejected
-                  </div>
-                  <div style={{ color: "#8899BB", fontSize: 12 }}>
-                    Citizen has been notified
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {!actionDone && (
-              <div style={S.actionBox}>
-                <div style={S.actionBoxTitle}>⚖️ Admin Decision</div>
-
-                {/* ── ACCEPT BUTTON ── */}
-                <button
+              {selected.idImageUrl ? (
+                <div
                   style={{
-                    ...S.acceptBtn,
-                    opacity: saving ? 0.6 : 1,
-                    ...(currentStatus === "verified"
-                      ? S.acceptBtnDisabled
-                      : {}),
+                    position: "relative",
+                    borderRadius: "var(--r-md)",
+                    overflow: "hidden",
+                    cursor: "pointer",
                   }}
-                  onClick={handleAccept}
-                  disabled={saving || currentStatus === "verified"}
+                  onClick={() => window.open(selected.idImageUrl, "_blank")}
                 >
-                  <span style={{ fontSize: 20 }}>✅</span>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ fontWeight: 800, fontSize: 15 }}>
-                      {currentStatus === "verified"
-                        ? "Already Verified"
-                        : "Accept & Verify"}
-                    </div>
-                    <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
-                      {currentStatus === "verified"
-                        ? "This citizen is already verified"
-                        : "Approve ID and grant verified status"}
-                    </div>
-                  </div>
-                </button>
-
-                {/* Divider */}
-                <div style={S.orDivider}>
-                  <div style={S.orLine} />
-                  <span style={S.orText}>OR</span>
-                  <div style={S.orLine} />
-                </div>
-
-                {/* ── REJECT SECTION ── */}
-                <div style={S.rejectBox}>
-                  <label style={S.rejectLabel}>
-                    ❌ Reject — Reason{" "}
-                    <span style={{ color: "#FF4444" }}>*</span>
-                  </label>
-                  <textarea
-                    style={S.rejectTextarea}
-                    placeholder="e.g. ID photo is blurry. Please resubmit a clearer photo."
-                    value={rejectionReason}
-                    onChange={(e) => setRejectionReason(e.target.value)}
-                    rows={3}
+                  <img
+                    src={selected.idImageUrl}
+                    alt="ID"
+                    style={{
+                      width: "100%",
+                      maxHeight: 200,
+                      objectFit: "cover",
+                      display: "block",
+                    }}
                   />
-                  <button
+                  <div
                     style={{
-                      ...S.rejectBtn,
-                      opacity: saving || !rejectionReason.trim() ? 0.5 : 1,
+                      position: "absolute",
+                      inset: 0,
+                      background: "rgba(0,0,0,0)",
+                      transition: "background 0.2s",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                     }}
-                    onClick={handleReject}
-                    disabled={saving || !rejectionReason.trim()}
                   >
-                    <span style={{ fontSize: 18 }}>❌</span>
-                    <div style={{ textAlign: "left" }}>
-                      <div style={{ fontWeight: 800, fontSize: 15 }}>
-                        Reject Submission
-                      </div>
-                      <div style={{ fontSize: 11, opacity: 0.8, marginTop: 2 }}>
-                        Citizen will be asked to resubmit
-                      </div>
-                    </div>
-                  </button>
+                    <span style={{ fontSize: 11, color: "transparent" }}>
+                      Click to enlarge
+                    </span>
+                  </div>
                 </div>
-              </div>
-            )}
-
-            {/* Previous rejection reason */}
-            {currentStatus === "rejected" &&
-              selected.rejectionReason &&
-              !actionDone && (
-                <div style={S.prevRejection}>
-                  <div style={S.sectionLabel}>📝 PREVIOUS REJECTION REASON</div>
+              ) : (
+                <div
+                  style={{
+                    padding: "24px",
+                    textAlign: "center",
+                    background: "var(--surface-2)",
+                    borderRadius: "var(--r-md)",
+                    border: "1px dashed var(--border)",
+                  }}
+                >
+                  <div style={{ fontSize: 32, marginBottom: 8, opacity: 0.4 }}>
+                    📂
+                  </div>
                   <p
-                    style={{
-                      color: "#FF6666",
-                      fontSize: 13,
-                      margin: "8px 0 0",
-                    }}
+                    style={{ color: "var(--text-3)", fontSize: 13, margin: 0 }}
                   >
-                    {selected.rejectionReason}
+                    {selected.verificationStatus === "unverified"
+                      ? "Citizen has not submitted an ID yet"
+                      : "No ID photo available"}
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* ═══════════════════════════════════════
+                  APPROVE / REJECT ACTIONS
+                ═══════════════════════════════════════ */}
+            <div style={{ padding: "16px 18px" }}>
+              {/* Feedback banners */}
+              {feedback === "approved" && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 14px",
+                    background: "rgba(16,185,129,0.1)",
+                    border: "1px solid rgba(16,185,129,0.25)",
+                    borderRadius: "var(--r-md)",
+                    marginBottom: 14,
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>✅</span>
+                  <div>
+                    <div
+                      style={{
+                        color: "#10B981",
+                        fontWeight: 700,
+                        fontSize: 14,
+                      }}
+                    >
+                      Approved!
+                    </div>
+                    <div style={{ color: "var(--text-3)", fontSize: 12 }}>
+                      Citizen now has full access
+                    </div>
+                  </div>
+                </div>
+              )}
+              {feedback === "rejected" && (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    padding: "12px 14px",
+                    background: "rgba(239,68,68,0.1)",
+                    border: "1px solid rgba(239,68,68,0.25)",
+                    borderRadius: "var(--r-md)",
+                    marginBottom: 14,
+                  }}
+                >
+                  <span style={{ fontSize: 20 }}>❌</span>
+                  <div>
+                    <div
+                      style={{
+                        color: "#EF4444",
+                        fontWeight: 700,
+                        fontSize: 14,
+                      }}
+                    >
+                      Rejected
+                    </div>
+                    <div style={{ color: "var(--text-3)", fontSize: 12 }}>
+                      Citizen will be asked to resubmit
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {!feedback && (
+                <>
+                  {/* Previous rejection reason */}
+                  {selected.rejectionReason && (
+                    <div
+                      style={{
+                        padding: "10px 12px",
+                        background: "rgba(239,68,68,0.07)",
+                        border: "1px solid rgba(239,68,68,0.2)",
+                        borderRadius: "var(--r-md)",
+                        marginBottom: 14,
+                      }}
+                    >
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "#EF4444",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.4px",
+                          marginBottom: 5,
+                        }}
+                      >
+                        Previous Rejection Reason
+                      </div>
+                      <p
+                        style={{
+                          color: "#FCA5A5",
+                          fontSize: 13,
+                          margin: 0,
+                          lineHeight: 1.5,
+                        }}
+                      >
+                        {selected.rejectionReason}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* ── APPROVE button ── */}
+                  {currentStatus !== "verified" && (
+                    <button
+                      onClick={handleApprove}
+                      disabled={saving}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        padding: "13px 16px",
+                        background: "#10B981",
+                        border: "none",
+                        borderRadius: "var(--r-md)",
+                        color: "#fff",
+                        cursor: "pointer",
+                        marginBottom: 10,
+                        opacity: saving ? 0.6 : 1,
+                        boxShadow: "0 4px 16px rgba(16,185,129,0.35)",
+                        transition: "all 0.15s",
+                      }}
+                    >
+                      <span style={{ fontSize: 20 }}>✅</span>
+                      <div style={{ textAlign: "left" }}>
+                        <div style={{ fontWeight: 700, fontSize: 14 }}>
+                          Approve & Verify
+                        </div>
+                        <div
+                          style={{ fontSize: 11, opacity: 0.8, marginTop: 1 }}
+                        >
+                          Grant full access to CitiVoice
+                        </div>
+                      </div>
+                    </button>
+                  )}
+
+                  {/* ── Divider ── */}
+                  {currentStatus !== "verified" && (
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        margin: "12px 0",
+                      }}
+                    >
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 1,
+                          background: "var(--border)",
+                        }}
+                      />
+                      <span
+                        style={{
+                          color: "var(--text-3)",
+                          fontSize: 11,
+                          fontWeight: 700,
+                        }}
+                      >
+                        OR
+                      </span>
+                      <div
+                        style={{
+                          flex: 1,
+                          height: 1,
+                          background: "var(--border)",
+                        }}
+                      />
+                    </div>
+                  )}
+
+                  {/* ── REJECT section ── */}
+                  {currentStatus !== "verified" && (
+                    <div>
+                      <label
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: "var(--text-3)",
+                          textTransform: "uppercase",
+                          letterSpacing: "0.5px",
+                          display: "block",
+                          marginBottom: 8,
+                        }}
+                      >
+                        Rejection Reason{" "}
+                        <span style={{ color: "var(--red)" }}>*</span>
+                      </label>
+                      <textarea
+                        style={{
+                          width: "100%",
+                          background: "var(--surface-3)",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--r-md)",
+                          color: "var(--text-1)",
+                          padding: "10px 12px",
+                          fontSize: 13,
+                          resize: "vertical",
+                          outline: "none",
+                          boxSizing: "border-box",
+                          minHeight: 72,
+                          marginBottom: 8,
+                          fontFamily: "inherit",
+                        }}
+                        placeholder="e.g. ID photo is blurry. Please take a clearer photo showing all corners."
+                        value={reason}
+                        onChange={(e) => setReason(e.target.value)}
+                      />
+                      <button
+                        onClick={handleReject}
+                        disabled={saving || !reason.trim()}
+                        style={{
+                          width: "100%",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 12,
+                          padding: "13px 16px",
+                          background: "rgba(239,68,68,0.12)",
+                          border: "2px solid rgba(239,68,68,0.3)",
+                          borderRadius: "var(--r-md)",
+                          color: "#EF4444",
+                          cursor: "pointer",
+                          opacity: saving || !reason.trim() ? 0.5 : 1,
+                          transition: "all 0.15s",
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>❌</span>
+                        <div style={{ textAlign: "left" }}>
+                          <div style={{ fontWeight: 700, fontSize: 14 }}>
+                            Reject Submission
+                          </div>
+                          <div
+                            style={{ fontSize: 11, opacity: 0.8, marginTop: 1 }}
+                          >
+                            Citizen must resubmit their ID
+                          </div>
+                        </div>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Already verified — show revoke option */}
+                  {currentStatus === "verified" && (
+                    <div>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          padding: "12px 14px",
+                          background: "rgba(16,185,129,0.08)",
+                          border: "1px solid rgba(16,185,129,0.2)",
+                          borderRadius: "var(--r-md)",
+                          marginBottom: 14,
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>✅</span>
+                        <div>
+                          <div
+                            style={{
+                              color: "#10B981",
+                              fontWeight: 700,
+                              fontSize: 13,
+                            }}
+                          >
+                            Verified Citizen
+                          </div>
+                          <div
+                            style={{
+                              color: "var(--text-3)",
+                              fontSize: 11,
+                              marginTop: 2,
+                            }}
+                          >
+                            Approved on {fmt(selected.verifiedAt)}
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        onClick={handleRevoke}
+                        disabled={saving}
+                        style={{
+                          width: "100%",
+                          padding: "10px",
+                          background: "transparent",
+                          border: "1px solid var(--border)",
+                          borderRadius: "var(--r-md)",
+                          color: "var(--text-3)",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          opacity: saving ? 0.5 : 1,
+                        }}
+                      >
+                        Revoke Verification
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 }
-
-const S = {
-  page: { padding: 32, maxWidth: 1400, margin: "0 auto" },
-
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 24,
-  },
-  title: { color: "#fff", fontSize: 26, fontWeight: 800, margin: 0 },
-  subtitle: { color: "#8899BB", fontSize: 14, marginTop: 4 },
-  pendingAlert: {
-    display: "flex",
-    alignItems: "center",
-    gap: 12,
-    backgroundColor: "#FFB80022",
-    border: "1px solid #FFB80055",
-    borderRadius: 14,
-    padding: "12px 18px",
-  },
-
-  tabs: { display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" },
-  tab: {
-    padding: "8px 16px",
-    borderRadius: 20,
-    border: "1px solid #1E3355",
-    backgroundColor: "#162B4D",
-    color: "#8899BB",
-    cursor: "pointer",
-    fontSize: 13,
-    fontWeight: 600,
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-  },
-  tabCount: {
-    borderRadius: 10,
-    padding: "1px 7px",
-    fontSize: 11,
-    fontWeight: 800,
-  },
-
-  layout: { display: "grid", gap: 20 },
-
-  listCard: {
-    backgroundColor: "#112240",
-    borderRadius: 16,
-    border: "1px solid #1E3355",
-    overflow: "hidden",
-  },
-  table: { width: "100%", borderCollapse: "collapse" },
-  th: {
-    color: "#8899BB",
-    fontSize: 11,
-    fontWeight: 700,
-    textAlign: "left",
-    padding: "12px 16px",
-    borderBottom: "1px solid #1E3355",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  tr: {
-    borderBottom: "1px solid #1E3355",
-    borderLeft: "3px solid transparent",
-    transition: "background 0.1s",
-  },
-  td: {
-    padding: "12px 16px",
-    fontSize: 13,
-    color: "#8899BB",
-    verticalAlign: "middle",
-  },
-
-  citizenCell: { display: "flex", alignItems: "center", gap: 10 },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "#1A6BFF",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    fontWeight: 800,
-    fontSize: 13,
-    flexShrink: 0,
-  },
-  citizenName: {
-    color: "#fff",
-    fontWeight: 600,
-    fontSize: 13,
-    display: "flex",
-    alignItems: "center",
-    gap: 6,
-  },
-  citizenEmail: { color: "#4A5A7A", fontSize: 11, marginTop: 2 },
-  verifiedBadge: {
-    backgroundColor: "#00D4AA22",
-    color: "#00D4AA",
-    fontSize: 10,
-    fontWeight: 700,
-    padding: "1px 6px",
-    borderRadius: 10,
-  },
-  barangayTag: {
-    backgroundColor: "#1A6BFF22",
-    color: "#4D8FFF",
-    padding: "3px 8px",
-    borderRadius: 20,
-    fontSize: 11,
-    fontWeight: 600,
-  },
-  statusBadge: {
-    padding: "4px 10px",
-    borderRadius: 20,
-    fontSize: 11,
-    fontWeight: 700,
-    display: "inline-block",
-  },
-
-  inlineActions: { display: "flex", gap: 6, alignItems: "center" },
-  reviewBtn: {
-    backgroundColor: "#1A6BFF22",
-    border: "1px solid #1A6BFF44",
-    color: "#1A6BFF",
-    borderRadius: 8,
-    padding: "5px 10px",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 700,
-    whiteSpace: "nowrap",
-  },
-  quickAcceptBtn: {
-    backgroundColor: "#00D4AA22",
-    border: "1px solid #00D4AA44",
-    borderRadius: 8,
-    padding: "5px 8px",
-    cursor: "pointer",
-    fontSize: 14,
-  },
-  quickRejectBtn: {
-    backgroundColor: "#FF444422",
-    border: "1px solid #FF444444",
-    borderRadius: 8,
-    padding: "5px 8px",
-    cursor: "pointer",
-    fontSize: 14,
-  },
-
-  empty: { padding: 80, textAlign: "center" },
-
-  // ── Panel ──
-  panel: {
-    backgroundColor: "#112240",
-    borderRadius: 16,
-    border: "1px solid #1E3355",
-    padding: 22,
-    alignSelf: "start",
-  },
-  panelHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  panelTitle: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: 800,
-    margin: "0 0 6px",
-  },
-  closeBtn: {
-    background: "none",
-    border: "1px solid #1E3355",
-    color: "#8899BB",
-    borderRadius: 8,
-    padding: "4px 10px",
-    cursor: "pointer",
-    fontSize: 14,
-  },
-
-  infoCard: {
-    backgroundColor: "#162B4D",
-    borderRadius: 14,
-    padding: 16,
-    border: "1px solid #1E3355",
-    textAlign: "center",
-    marginBottom: 14,
-  },
-  panelAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
-    backgroundColor: "#1A6BFF",
-    display: "inline-flex",
-    alignItems: "center",
-    justifyContent: "center",
-    color: "#fff",
-    fontWeight: 900,
-    fontSize: 22,
-    marginBottom: 10,
-  },
-  panelName: { color: "#fff", fontSize: 17, fontWeight: 800 },
-  panelEmail: { color: "#8899BB", fontSize: 13, marginTop: 3 },
-
-  infoGrid: {
-    display: "flex",
-    flexDirection: "column",
-    gap: 0,
-    backgroundColor: "#162B4D",
-    borderRadius: 12,
-    border: "1px solid #1E3355",
-    overflow: "hidden",
-    marginBottom: 16,
-  },
-  infoRow: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "10px 14px",
-    borderBottom: "1px solid #1E3355",
-  },
-  infoLabel: { color: "#8899BB", fontSize: 12 },
-  infoValue: { color: "#fff", fontSize: 13, fontWeight: 600 },
-
-  idPhotoHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  sectionLabel: {
-    color: "#8899BB",
-    fontSize: 10,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  viewFullBtn: {
-    background: "none",
-    border: "1px solid #1E3355",
-    color: "#1A6BFF",
-    borderRadius: 8,
-    padding: "4px 10px",
-    cursor: "pointer",
-    fontSize: 12,
-    fontWeight: 600,
-  },
-  idPhoto: {
-    width: "100%",
-    borderRadius: 12,
-    objectFit: "cover",
-    maxHeight: 200,
-    border: "1px solid #1E3355",
-  },
-  noIdPhoto: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#162B4D",
-    borderRadius: 12,
-    padding: 24,
-    marginBottom: 16,
-    border: "1px solid #1E3355",
-  },
-
-  // ── Action Box ──
-  actionBox: {
-    backgroundColor: "#0D1F3C",
-    borderRadius: 16,
-    padding: 18,
-    border: "2px solid #1E3355",
-  },
-  actionBoxTitle: {
-    color: "#8899BB",
-    fontSize: 11,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 14,
-  },
-
-  acceptBtn: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "14px 18px",
-    backgroundColor: "#00D4AA",
-    color: "#fff",
-    border: "none",
-    borderRadius: 14,
-    cursor: "pointer",
-    boxShadow: "0 4px 16px rgba(0,212,170,0.35)",
-    transition: "opacity 0.2s",
-    marginBottom: 4,
-  },
-  acceptBtnDisabled: {
-    backgroundColor: "#1E3355",
-    boxShadow: "none",
-    color: "#8899BB",
-  },
-
-  orDivider: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    margin: "14px 0",
-  },
-  orLine: { flex: 1, height: 1, backgroundColor: "#1E3355" },
-  orText: { color: "#4A5A7A", fontSize: 11, fontWeight: 700 },
-
-  rejectBox: { display: "flex", flexDirection: "column", gap: 10 },
-  rejectLabel: { color: "#8899BB", fontSize: 12, fontWeight: 700 },
-  rejectTextarea: {
-    width: "100%",
-    backgroundColor: "#162B4D",
-    border: "1px solid #1E3355",
-    borderRadius: 10,
-    color: "#fff",
-    padding: "10px 12px",
-    fontSize: 13,
-    resize: "vertical",
-    outline: "none",
-    boxSizing: "border-box",
-  },
-  rejectBtn: {
-    width: "100%",
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    padding: "14px 18px",
-    backgroundColor: "#FF444422",
-    color: "#FF4444",
-    border: "2px solid #FF444455",
-    borderRadius: 14,
-    cursor: "pointer",
-    transition: "opacity 0.2s",
-  },
-
-  successBanner: {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: "#00D4AA22",
-    border: "2px solid #00D4AA55",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-  },
-  rejectedFeedback: {
-    display: "flex",
-    alignItems: "center",
-    gap: 14,
-    backgroundColor: "#FF444422",
-    border: "2px solid #FF444455",
-    borderRadius: 14,
-    padding: 16,
-    marginBottom: 16,
-  },
-
-  prevRejection: {
-    backgroundColor: "#FF444411",
-    border: "1px solid #FF444433",
-    borderRadius: 12,
-    padding: 14,
-    marginTop: 14,
-  },
-};

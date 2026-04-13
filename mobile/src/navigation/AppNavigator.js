@@ -5,12 +5,14 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../context/AuthContext";
+import { COLORS, RADIUS } from "../utils/theme";
 
-// ── Auth screens ───────────────────────────────────────────────────────────
+// ── Auth ───────────────────────────────────────────────────────────────────
 import LoginScreen from "../screens/auth/LoginScreen";
 import RegisterScreen from "../screens/auth/Registerscreen";
+import VerifyIdentityScreen from "../screens/auth/VerifyIdentityScreen";
 
-// ── Citizen screens ────────────────────────────────────────────────────────
+// ── Citizen ────────────────────────────────────────────────────────────────
 import HomeScreen from "../screens/citizen/HomeScreen";
 import SubmitConcernScreen from "../screens/citizen/SubmitConcernScreen";
 import ConcernDetailScreen from "../screens/citizen/Concerndetailscreen";
@@ -19,7 +21,7 @@ import MapScreen from "../screens/citizen/Mapscreen";
 import ProfileScreen from "../screens/citizen/Profilescreen";
 import EventsScreen from "../screens/citizen/Eventsscreen";
 
-// ── Admin screens ──────────────────────────────────────────────────────────
+// ── Admin ──────────────────────────────────────────────────────────────────
 import AdminDashboardScreen from "../screens/admin/Admindashboardscreen";
 import AdminConcernsScreen from "../screens/admin/Adminconcernsscreen";
 import AdminConcernDetailScreen from "../screens/admin/Adminconcerndetailscreen";
@@ -29,31 +31,44 @@ const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
 const HEADER = {
-  headerStyle: { backgroundColor: "#112240" },
-  headerTintColor: "#fff",
-  headerTitleStyle: { fontWeight: "700" },
+  headerStyle: { backgroundColor: COLORS.bgCard },
+  headerTintColor: COLORS.textPrimary,
+  headerTitleStyle: { fontWeight: "700", fontSize: 16 },
   headerShadowVisible: false,
-  contentStyle: { backgroundColor: "#0A1628" },
+  contentStyle: { backgroundColor: COLORS.bgDark },
 };
 
 const TAB_BAR = {
   tabBarStyle: {
-    backgroundColor: "#112240",
-    borderTopColor: "#1E3355",
+    backgroundColor: COLORS.bgCard,
+    borderTopColor: COLORS.border,
     borderTopWidth: 1,
     height: 62,
     paddingBottom: 8,
     paddingTop: 4,
   },
   tabBarLabelStyle: { fontSize: 10, fontWeight: "600" },
+  tabBarActiveTintColor: COLORS.primary,
+  tabBarInactiveTintColor: COLORS.textMuted,
 };
 
 // ── Auth Stack ─────────────────────────────────────────────────────────────
+// Includes VerifyIdentity so blocked users can submit their ID
 function AuthStack() {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Register" component={RegisterScreen} />
+      <Stack.Screen
+        name="VerifyIdentity"
+        component={VerifyIdentityScreen}
+        options={{
+          headerShown: true,
+          ...HEADER,
+          title: "Verify Identity",
+          headerShown: true,
+        }}
+      />
     </Stack.Navigator>
   );
 }
@@ -70,7 +85,7 @@ function HomeStack() {
       <Stack.Screen
         name="ConcernDetail"
         component={ConcernDetailScreen}
-        options={{ title: "Concern Detail" }}
+        options={{ title: "" }}
       />
       <Stack.Screen
         name="SubmitConcern"
@@ -87,11 +102,9 @@ function CitizenTabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         ...TAB_BAR,
-        headerStyle: { backgroundColor: "#112240" },
-        headerTintColor: "#fff",
+        headerStyle: { backgroundColor: COLORS.bgCard },
+        headerTintColor: COLORS.textPrimary,
         headerShadowVisible: false,
-        tabBarActiveTintColor: "#1A6BFF",
-        tabBarInactiveTintColor: "#4A5A7A",
         tabBarIcon: ({ focused, color, size }) => {
           const icons = {
             Home: focused ? "home" : "home-outline",
@@ -128,16 +141,12 @@ function CitizenTabs() {
       <Tab.Screen
         name="Map"
         component={MapScreen}
-        options={{ title: "Map", tabBarLabel: "Map", headerShown: false }}
+        options={{ headerShown: false, tabBarLabel: "Map" }}
       />
       <Tab.Screen
         name="Profile"
         component={ProfileScreen}
-        options={{
-          title: "Profile",
-          tabBarLabel: "Profile",
-          headerShown: false,
-        }}
+        options={{ headerShown: false, tabBarLabel: "Profile" }}
       />
     </Tab.Navigator>
   );
@@ -167,11 +176,10 @@ function AdminTabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         ...TAB_BAR,
-        headerStyle: { backgroundColor: "#112240" },
-        headerTintColor: "#fff",
+        tabBarActiveTintColor: COLORS.accent,
+        headerStyle: { backgroundColor: COLORS.bgCard },
+        headerTintColor: COLORS.textPrimary,
         headerShadowVisible: false,
-        tabBarActiveTintColor: "#00D4AA",
-        tabBarInactiveTintColor: "#4A5A7A",
         tabBarIcon: ({ focused, color, size }) => {
           const icons = {
             AdminHome: focused ? "grid" : "grid-outline",
@@ -216,14 +224,14 @@ export default function AppNavigator() {
       <View
         style={{
           flex: 1,
-          backgroundColor: "#0A1628",
+          backgroundColor: COLORS.bgDark,
           alignItems: "center",
           justifyContent: "center",
         }}
       >
-        <ActivityIndicator color="#1A6BFF" size="large" />
-        <Text style={{ color: "#8899BB", marginTop: 12, fontSize: 14 }}>
-          Loading...
+        <ActivityIndicator color={COLORS.primary} size="large" />
+        <Text style={{ color: COLORS.textMuted, marginTop: 12, fontSize: 13 }}>
+          Loading…
         </Text>
       </View>
     );
@@ -231,13 +239,17 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer>
-      {!user ? (
-        <AuthStack />
-      ) : user.role === "admin" ? (
-        <AdminTabs />
-      ) : (
-        <CitizenTabs />
-      )}
+      {
+        !user ? (
+          <AuthStack /> // Not logged in
+        ) : user._blocked ? (
+          <AuthStack /> // Logged in but NOT verified → show gate in LoginScreen
+        ) : user.role === "admin" ? (
+          <AdminTabs /> // Admin
+        ) : (
+          <CitizenTabs />
+        ) // Verified citizen
+      }
     </NavigationContainer>
   );
 }

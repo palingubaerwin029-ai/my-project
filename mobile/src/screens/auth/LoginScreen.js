@@ -13,9 +13,8 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { useAuth } from "../../context/AuthContext";
+import { useAuth, VERIFICATION_STATUS } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { AuthService } from "../../services/authService";
 import { COLORS, RADIUS, SHADOWS } from "../../utils/theme";
 
 const LANGS = [
@@ -24,8 +23,157 @@ const LANGS = [
   { code: "hil", label: "HIL" },
 ];
 
+// ── Blocked status screen ─────────────────────────────────────────────────
+function VerificationGate({ user, onLogout, onGoVerify }) {
+  const status = user?.verificationStatus;
+
+  const CONFIG = {
+    [VERIFICATION_STATUS.UNVERIFIED]: {
+      icon: "📋",
+      color: "#94A3B8",
+      title: "Identity Verification Required",
+      message:
+        "To protect the community, we require all citizens to verify their identity before accessing CitiVoice.",
+      action: "Submit My ID",
+      actionFn: onGoVerify,
+      actionColor: COLORS.primary,
+    },
+    [VERIFICATION_STATUS.PENDING]: {
+      icon: "⏳",
+      color: "#F59E0B",
+      title: "Account Under Review",
+      message:
+        "Your ID has been submitted and is currently being reviewed by the administrator. This usually takes 1–2 business days.",
+      action: null, // no action — must wait
+      actionColor: null,
+    },
+    [VERIFICATION_STATUS.REJECTED]: {
+      icon: "❌",
+      color: "#EF4444",
+      title: "Verification Rejected",
+      message: user?.rejectionReason
+        ? `Reason: ${user.rejectionReason}`
+        : "Your verification was rejected by the administrator. Please resubmit with a valid government ID.",
+      action: "Resubmit ID",
+      actionFn: onGoVerify,
+      actionColor: "#EF4444",
+    },
+  };
+
+  const cfg = CONFIG[status] || CONFIG[VERIFICATION_STATUS.UNVERIFIED];
+
+  return (
+    <View style={G.container}>
+      {/* Background glow */}
+      <View style={[G.glow, { backgroundColor: cfg.color }]} />
+
+      <View style={G.card}>
+        {/* Status icon */}
+        <View
+          style={[
+            G.iconWrap,
+            {
+              borderColor: cfg.color + "44",
+              backgroundColor: cfg.color + "12",
+            },
+          ]}
+        >
+          <Text style={G.icon}>{cfg.icon}</Text>
+        </View>
+
+        {/* Status badge */}
+        <View
+          style={[
+            G.statusBadge,
+            {
+              backgroundColor: cfg.color + "1A",
+              borderColor: cfg.color + "44",
+            },
+          ]}
+        >
+          <View style={[G.statusDot, { backgroundColor: cfg.color }]} />
+          <Text style={[G.statusText, { color: cfg.color }]}>
+            {status === VERIFICATION_STATUS.UNVERIFIED
+              ? "Not Verified"
+              : status === VERIFICATION_STATUS.PENDING
+                ? "Pending Review"
+                : "Rejected"}
+          </Text>
+        </View>
+
+        <Text style={G.title}>{cfg.title}</Text>
+        <Text style={G.message}>{cfg.message}</Text>
+
+        {/* Steps for unverified */}
+        {status === VERIFICATION_STATUS.UNVERIFIED && (
+          <View style={G.stepsBox}>
+            {[
+              { n: "1", text: "Submit a valid government ID" },
+              { n: "2", text: "Admin reviews your submission" },
+              { n: "3", text: "Get verified and access CitiVoice" },
+            ].map((step) => (
+              <View key={step.n} style={G.step}>
+                <View style={G.stepNum}>
+                  <Text style={G.stepNumText}>{step.n}</Text>
+                </View>
+                <Text style={G.stepText}>{step.text}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Pending info box */}
+        {status === VERIFICATION_STATUS.PENDING && (
+          <View style={G.pendingBox}>
+            <Ionicons
+              name="information-circle-outline"
+              size={18}
+              color="#F59E0B"
+            />
+            <Text style={G.pendingText}>
+              You will be notified once your account is approved. You may check
+              back later.
+            </Text>
+          </View>
+        )}
+
+        {/* Action button */}
+        {cfg.action && (
+          <TouchableOpacity
+            style={[G.actionBtn, { backgroundColor: cfg.actionColor }]}
+            onPress={cfg.actionFn}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="shield-checkmark-outline" size={18} color="#fff" />
+            <Text style={G.actionBtnText}>{cfg.action}</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Sign out */}
+        <TouchableOpacity style={G.signOutBtn} onPress={onLogout}>
+          <Ionicons name="log-out-outline" size={16} color={COLORS.textMuted} />
+          <Text style={G.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Account info pill */}
+      <View style={G.accountPill}>
+        <Ionicons
+          name="person-circle-outline"
+          size={14}
+          color={COLORS.textMuted}
+        />
+        <Text style={G.accountEmail} numberOfLines={1}>
+          {user?.email}
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+// ── Main Login Screen ──────────────────────────────────────────────────────
 export default function LoginScreen({ navigation }) {
-  const { login } = useAuth();
+  const { login, logout, user } = useAuth();
   const { language, changeLanguage } = useLanguage();
 
   const [email, setEmail] = useState("");
@@ -33,6 +181,17 @@ export default function LoginScreen({ navigation }) {
   const [showPw, setShowPw] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
+
+  // ── Show verification gate if user is blocked ─────────────────────────
+  if (user?._blocked) {
+    return (
+      <VerificationGate
+        user={user}
+        onLogout={logout}
+        onGoVerify={() => navigation.navigate("VerifyIdentity")}
+      />
+    );
+  }
 
   const validate = () => {
     const e = {};
@@ -47,35 +206,43 @@ export default function LoginScreen({ navigation }) {
     if (!validate()) return;
     setLoading(true);
     try {
-      const user = await login(email.trim(), password);
+      const userData = await login(email.trim(), password);
 
-      if (user.verificationStatus === "pending") {
-        await AuthService.logout?.();
-        Alert.alert(
-          "⏳ Pending Approval",
-          "Your account is under admin review. Please wait.",
-        );
-        return;
+      // ── Intercept blocked statuses ──────────────────────────────────
+      // onAuthStateChanged will set user._blocked = true automatically,
+      // which will trigger the VerificationGate above.
+      // But we also handle it here for immediate feedback.
+
+      if (userData.role !== "admin") {
+        const st = userData.verificationStatus;
+
+        if (st === VERIFICATION_STATUS.UNVERIFIED) {
+          // Let onAuthStateChanged handle the redirect to gate
+          return;
+        }
+        if (st === VERIFICATION_STATUS.PENDING) {
+          return; // gate will show
+        }
+        if (st === VERIFICATION_STATUS.REJECTED) {
+          return; // gate will show with rejection reason
+        }
+        // st === 'verified' → AppNavigator will route to CitizenTabs
       }
-      if (user.verificationStatus === "rejected") {
-        await AuthService.logout?.();
-        Alert.alert(
-          "❌ Access Denied",
-          user.rejectionReason || "Contact the administrator.",
-        );
-        return;
-      }
-      // AppNavigator handles redirect automatically
+      // admin → AppNavigator routes to AdminTabs
     } catch (err) {
       const map = {
         "auth/invalid-credential": "Wrong email or password.",
         "auth/user-not-found": "No account with this email.",
         "auth/wrong-password": "Incorrect password.",
         "auth/invalid-email": "Invalid email address.",
-        "auth/too-many-requests": "Too many attempts. Try later.",
+        "auth/too-many-requests": "Too many attempts. Try again later.",
         "auth/network-request-failed": "No internet connection.",
+        NO_PROFILE: "Account not set up. Please register.",
       };
-      Alert.alert("Login Failed", map[err.code] || "Please try again.");
+      Alert.alert(
+        "Login Failed",
+        map[err.code] || map[err.message] || "Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -86,7 +253,6 @@ export default function LoginScreen({ navigation }) {
       colors={[COLORS.bgDeep, "#080F1E", COLORS.bgDark]}
       style={{ flex: 1 }}
     >
-      {/* Glow blob */}
       <View style={S.glowBlob} />
 
       <KeyboardAvoidingView
@@ -98,7 +264,7 @@ export default function LoginScreen({ navigation }) {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
-          {/* Lang switcher */}
+          {/* Language switcher */}
           <View style={S.langRow}>
             {LANGS.map((l) => (
               <TouchableOpacity
@@ -118,15 +284,13 @@ export default function LoginScreen({ navigation }) {
           {/* Logo */}
           <View style={S.logoSection}>
             <View style={S.logoRing}>
-              <View style={S.logoInner}>
-                <Text style={{ fontSize: 32 }}>📢</Text>
-              </View>
+              <Text style={{ fontSize: 32 }}>📢</Text>
             </View>
             <Text style={S.appName}>CitiVoice</Text>
             <Text style={S.appTagline}>Kabankalan City</Text>
           </View>
 
-          {/* Card */}
+          {/* Form card */}
           <View style={S.card}>
             <Text style={S.cardTitle}>Welcome back</Text>
             <Text style={S.cardSubtitle}>Sign in to your account</Text>
@@ -219,15 +383,15 @@ export default function LoginScreen({ navigation }) {
             </View>
           </View>
 
-          {/* Security note */}
-          <View style={S.securityNote}>
+          {/* Info note */}
+          <View style={S.noteBox}>
             <Ionicons
               name="shield-checkmark-outline"
-              size={13}
+              size={14}
               color={COLORS.textMuted}
             />
-            <Text style={S.securityText}>
-              Your data is protected and encrypted
+            <Text style={S.noteText}>
+              New accounts require admin verification before access
             </Text>
           </View>
         </ScrollView>
@@ -236,6 +400,7 @@ export default function LoginScreen({ navigation }) {
   );
 }
 
+// ── Styles: Login Screen ───────────────────────────────────────────────────
 const S = StyleSheet.create({
   scroll: {
     flexGrow: 1,
@@ -289,7 +454,6 @@ const S = StyleSheet.create({
     backgroundColor: COLORS.bgCard,
     ...SHADOWS.card,
   },
-  logoInner: { alignItems: "center", justifyContent: "center" },
   appName: {
     color: COLORS.textPrimary,
     fontSize: 28,
@@ -306,7 +470,6 @@ const S = StyleSheet.create({
     borderColor: COLORS.border,
     ...SHADOWS.card,
   },
-
   cardTitle: {
     color: COLORS.textPrimary,
     fontSize: 20,
@@ -324,7 +487,6 @@ const S = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: 8,
   },
-
   inputWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -362,12 +524,157 @@ const S = StyleSheet.create({
   registerText: { color: COLORS.textSecondary, fontSize: 14 },
   registerLink: { color: COLORS.primaryLight, fontSize: 14, fontWeight: "700" },
 
-  securityNote: {
+  noteBox: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    marginTop: 24,
+    gap: 7,
+    marginTop: 20,
   },
-  securityText: { color: COLORS.textMuted, fontSize: 12 },
+  noteText: { color: COLORS.textMuted, fontSize: 12 },
+});
+
+// ── Styles: Verification Gate ──────────────────────────────────────────────
+const G = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: COLORS.bgDark,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  glow: {
+    position: "absolute",
+    top: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    opacity: 0.06,
+  },
+
+  card: {
+    width: "100%",
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS["2xl"],
+    padding: 24,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    ...SHADOWS.card,
+  },
+
+  iconWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  icon: { fontSize: 36 },
+
+  statusBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: RADIUS.full,
+    borderWidth: 1,
+    marginBottom: 16,
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
+  statusText: { fontSize: 12, fontWeight: "700" },
+
+  title: {
+    color: COLORS.textPrimary,
+    fontSize: 19,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: -0.3,
+    marginBottom: 10,
+  },
+  message: {
+    color: COLORS.textSecondary,
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 22,
+    marginBottom: 20,
+  },
+
+  stepsBox: {
+    width: "100%",
+    backgroundColor: COLORS.bgCardAlt,
+    borderRadius: RADIUS.lg,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    marginBottom: 20,
+    gap: 12,
+  },
+  step: { flexDirection: "row", alignItems: "center", gap: 12 },
+  stepNum: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    backgroundColor: COLORS.primary + "22",
+    borderWidth: 1,
+    borderColor: COLORS.primary + "44",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  stepNumText: { color: COLORS.primaryLight, fontSize: 12, fontWeight: "800" },
+  stepText: { color: COLORS.textSecondary, fontSize: 13, flex: 1 },
+
+  pendingBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "rgba(245,158,11,0.08)",
+    borderRadius: RADIUS.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(245,158,11,0.2)",
+    marginBottom: 20,
+    width: "100%",
+  },
+  pendingText: { color: "#FCD34D", fontSize: 13, lineHeight: 20, flex: 1 },
+
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    width: "100%",
+    height: 50,
+    borderRadius: RADIUS.md,
+    marginBottom: 12,
+    ...SHADOWS.button,
+  },
+  actionBtnText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+
+  signOutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    paddingVertical: 10,
+  },
+  signOutText: { color: COLORS.textMuted, fontSize: 14 },
+
+  accountPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 16,
+    backgroundColor: COLORS.bgCard,
+    borderRadius: RADIUS.full,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  accountEmail: { color: COLORS.textSecondary, fontSize: 12, maxWidth: 240 },
 });

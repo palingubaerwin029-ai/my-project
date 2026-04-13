@@ -13,14 +13,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../../context/AuthContext";
 import { useLanguage } from "../../context/LanguageContext";
-import { InputField, PrimaryButton } from "../../components/UI.js";
-import { COLORS, BARANGAYS } from "../../utils/theme";
-import * as ImagePicker from "expo-image-picker";
-import { Image } from "react-native";
+import { InputField, PrimaryButton } from "../../components/UI";
+import { COLORS, RADIUS, SHADOWS, BARANGAYS } from "../../utils/theme";
 
-export default function Registerscreen({ navigation }) {
+export default function RegisterScreen({ navigation }) {
   const { register } = useAuth();
   const { t, language, changeLanguage } = useLanguage();
+
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -29,70 +28,43 @@ export default function Registerscreen({ navigation }) {
     barangay: "",
   });
   const [showPw, setShowPw] = useState(false);
-  const [showBarangayPicker, setShowBarangayPicker] = useState(false);
+  const [showPicker, setShowPicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
-  const [philId, setPhilId] = useState(null);
-  const [voterId, setVoterId] = useState(null);
-  const [idType, setIdType] = useState("");
-  const [showIdDropdown, setShowIdDropdown] = useState(false);
 
   const set = (key, val) => setForm((f) => ({ ...f, [key]: val }));
-  const takePhoto = async (setImage) => {
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-
-    if (!permission.granted) {
-      Alert.alert("Permission required", "Camera access is needed.");
-      return;
-    }
-
-    const result = await ImagePicker.launchCameraAsync({
-      quality: 0.7,
-      allowsEditing: true,
-      aspect: [4, 3],
-    });
-
-    if (!result.canceled) {
-      setImage(result.assets[0].uri);
-    }
-  };
-  const getUploadedIdType = () => {
-    if (philId) return "PhilID";
-    if (voterId) return "Voter's ID";
-    return null;
-  };
 
   const validate = () => {
     const e = {};
-
-    if (!form.name.trim()) e.name = t("required");
-    if (!form.email.trim()) e.email = t("required");
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = t("invalidEmail");
-    if (!form.password) e.password = t("required");
-    else if (form.password.length < 6) e.password = t("passwordMin");
-    if (!form.barangay) e.barangay = t("required");
-
-    // ✅ ONLY ONE ID REQUIRED
-    if (!philId && !voterId) {
-      e.id = "Please provide at least one valid ID";
-    }
-
+    if (!form.name.trim()) e.name = "Full name is required";
+    if (!form.email.trim()) e.email = "Email is required";
+    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
+    if (!form.password) e.password = "Password is required";
+    else if (form.password.length < 6) e.password = "At least 6 characters";
+    if (!form.barangay) e.barangay = "Select your barangay";
     setErrors(e);
-    return Object.keys(e).length === 0;
+    return !Object.keys(e).length;
   };
 
   const handleRegister = async () => {
     if (!validate()) return;
     setLoading(true);
     try {
-      await register({
-        ...form,
-        philId,
-        voterId,
-        idType,
-      });
+      await register(form);
+      // After register, onAuthStateChanged fires and sets user._blocked = true
+      // LoginScreen will show the VerificationGate with "submit ID" prompt.
+      // But we can also navigate directly to the VerifyIdentity screen.
+      // Navigation happens automatically via AppNavigator + LoginScreen gate.
     } catch (err) {
-      Alert.alert(t("registrationFailed"), err.message || "Please try again.");
+      const map = {
+        "auth/email-already-in-use": "This email is already registered.",
+        "auth/invalid-email": "Invalid email address.",
+        "auth/weak-password": "Password is too weak.",
+      };
+      Alert.alert(
+        "Registration Failed",
+        map[err.code] || err.message || "Please try again.",
+      );
     } finally {
       setLoading(false);
     }
@@ -100,19 +72,22 @@ export default function Registerscreen({ navigation }) {
 
   return (
     <LinearGradient
-      colors={[COLORS.bgDark, "#0D2137", COLORS.bgDark]}
-      style={styles.gradient}
+      colors={[COLORS.bgDeep, "#080F1E", COLORS.bgDark]}
+      style={{ flex: 1 }}
     >
+      <View style={S.glowBlob} />
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={{ flex: 1 }}
       >
         <ScrollView
-          contentContainerStyle={styles.scroll}
+          contentContainerStyle={S.scroll}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Language Picker */}
-          <View style={styles.langRow}>
+          {/* Language switcher */}
+          <View style={S.langRow}>
             {[
               { code: "en", label: "EN" },
               { code: "fil", label: "FIL" },
@@ -120,17 +95,11 @@ export default function Registerscreen({ navigation }) {
             ].map((l) => (
               <TouchableOpacity
                 key={l.code}
-                style={[
-                  styles.langBtn,
-                  language === l.code && styles.langBtnActive,
-                ]}
+                style={[S.langChip, language === l.code && S.langChipActive]}
                 onPress={() => changeLanguage(l.code)}
               >
                 <Text
-                  style={[
-                    styles.langBtnText,
-                    language === l.code && styles.langBtnTextActive,
-                  ]}
+                  style={[S.langText, language === l.code && S.langTextActive]}
                 >
                   {l.label}
                 </Text>
@@ -138,260 +107,172 @@ export default function Registerscreen({ navigation }) {
             ))}
           </View>
 
-          {/* Header */}
-          <View style={styles.headerRow}>
+          {/* Back + Logo */}
+          <View style={S.topRow}>
             <TouchableOpacity
+              style={S.backBtn}
               onPress={() => navigation.goBack()}
-              style={styles.backBtn}
             >
               <Ionicons
                 name="chevron-back"
-                size={22}
+                size={20}
                 color={COLORS.textSecondary}
               />
             </TouchableOpacity>
-            <View style={styles.logoSmall}>
-              <Text style={{ fontSize: 22 }}>📢</Text>
+            <View style={S.logoSmall}>
+              <Text style={{ fontSize: 20 }}>📢</Text>
             </View>
           </View>
 
-          <Text style={styles.pageTitle}>{t("register")}</Text>
-          <Text style={styles.pageSubtitle}>{t("tagline")}</Text>
+          <Text style={S.pageTitle}>Create Account</Text>
+          <Text style={S.pageSubtitle}>Join CitiVoice — Kabankalan City</Text>
 
-          {/* Form Card */}
-          <View style={styles.card}>
+          {/* Verification notice */}
+          <View style={S.noticeBox}>
+            <Ionicons
+              name="shield-checkmark-outline"
+              size={18}
+              color={COLORS.primaryLight}
+            />
+            <View style={{ flex: 1 }}>
+              <Text style={S.noticeTitle}>Verification Required</Text>
+              <Text style={S.noticeText}>
+                After registering, you'll need to submit a valid government ID
+                for admin approval before accessing the app.
+              </Text>
+            </View>
+          </View>
+
+          {/* Form */}
+          <View style={S.card}>
             <InputField
-              label={t("fullName")}
+              label="FULL NAME"
               value={form.name}
               onChangeText={(v) => set("name", v)}
               placeholder="Juan dela Cruz"
               autoCapitalize="words"
+              leftIcon="person-outline"
               error={errors.name}
             />
 
             <InputField
-              label={t("email")}
+              label="EMAIL ADDRESS"
               value={form.email}
               onChangeText={(v) => set("email", v)}
               placeholder="you@example.com"
               keyboardType="email-address"
               autoCapitalize="none"
+              leftIcon="mail-outline"
               error={errors.email}
             />
 
-            <View style={styles.passwordWrapper}>
-              <InputField
-                label={t("password")}
-                value={form.password}
-                onChangeText={(v) => set("password", v)}
-                placeholder="At least 6 characters"
-                secureTextEntry={!showPw}
-                error={errors.password}
-                style={{ marginBottom: 0 }}
-              />
-              <TouchableOpacity
-                style={styles.eyeBtn}
-                onPress={() => setShowPw(!showPw)}
-              >
-                <Ionicons
-                  name={showPw ? "eye-off" : "eye"}
-                  size={20}
-                  color={COLORS.textMuted}
-                />
-              </TouchableOpacity>
-            </View>
+            <InputField
+              label="PASSWORD"
+              value={form.password}
+              onChangeText={(v) => set("password", v)}
+              placeholder="At least 6 characters"
+              secureTextEntry={!showPw}
+              leftIcon="lock-closed-outline"
+              rightElement={
+                <TouchableOpacity
+                  onPress={() => setShowPw((p) => !p)}
+                  style={{ position: "absolute", right: 14 }}
+                >
+                  <Ionicons
+                    name={showPw ? "eye-off-outline" : "eye-outline"}
+                    size={18}
+                    color={COLORS.textMuted}
+                  />
+                </TouchableOpacity>
+              }
+              error={errors.password}
+            />
 
             <InputField
-              label={t("phone")}
+              label="PHONE NUMBER"
               value={form.phone}
               onChangeText={(v) => set("phone", v)}
               placeholder="09XXXXXXXXX"
               keyboardType="phone-pad"
-              error={errors.phone}
+              leftIcon="call-outline"
             />
-            {/* ID ERROR */}
-            {errors.id && <Text style={styles.errorText}>{errors.id}</Text>}
 
-            {/* AUTO DETECT */}
-            {getUploadedIdType() && (
-              <Text style={{ color: COLORS.primary, marginBottom: 10 }}>
-                Selected ID: {getUploadedIdType()}
-              </Text>
-            )}
-            {/* ID TYPE DROPDOWN */}
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>Select ID Type</Text>
-
+            {/* Barangay picker */}
+            <View style={{ marginBottom: 14 }}>
+              <Text style={S.fieldLabel}>BARANGAY</Text>
               <TouchableOpacity
-                style={[styles.pickerBtn, errors.idType && styles.pickerError]}
-                onPress={() => setShowIdDropdown(!showIdDropdown)}
+                style={[S.picker, errors.barangay && S.pickerError]}
+                onPress={() => setShowPicker((p) => !p)}
               >
+                <Ionicons
+                  name="location-outline"
+                  size={16}
+                  color={COLORS.textMuted}
+                />
                 <Text
                   style={[
-                    styles.pickerText,
-                    !idType && styles.pickerPlaceholder,
+                    S.pickerText,
+                    !form.barangay && { color: COLORS.textMuted },
                   ]}
                 >
-                  {idType === "philId"
-                    ? "PhilID"
-                    : idType === "voterId"
-                      ? "Voter's ID"
-                      : "Choose ID"}
+                  {form.barangay || "Select your barangay"}
                 </Text>
-
                 <Ionicons
-                  name={showIdDropdown ? "chevron-up" : "chevron-down"}
-                  size={18}
+                  name={showPicker ? "chevron-up" : "chevron-down"}
+                  size={16}
                   color={COLORS.textMuted}
                 />
               </TouchableOpacity>
-
-              {errors.idType && (
-                <Text style={styles.errorText}>{errors.idType}</Text>
-              )}
-
-              {showIdDropdown && (
-                <View style={styles.dropdown}>
-                  {[
-                    { label: "PhilID", value: "philId" },
-                    { label: "Voter's ID", value: "voterId" },
-                  ].map((item) => (
-                    <TouchableOpacity
-                      key={item.value}
-                      style={styles.dropdownItem}
-                      onPress={() => {
-                        setIdType(item.value);
-                        setShowIdDropdown(false);
-                      }}
-                    >
-                      <Text style={styles.dropdownText}>{item.label}</Text>
-                    </TouchableOpacity>
-                  ))}
+              {errors.barangay && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 5,
+                    marginTop: 5,
+                  }}
+                >
+                  <Ionicons
+                    name="alert-circle"
+                    size={12}
+                    color={COLORS.danger}
+                  />
+                  <Text style={{ color: COLORS.danger, fontSize: 11 }}>
+                    {errors.barangay}
+                  </Text>
                 </View>
               )}
-            </View>
-
-            {/* ID CAPTURE */}
-            {errors.id && <Text style={styles.errorText}>{errors.id}</Text>}
-
-            {idType === "philId" && (
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>PhilID</Text>
-
-                <TouchableOpacity
-                  style={styles.pickerBtn}
-                  onPress={() => takePhoto(setPhilId)}
-                >
-                  <Text style={styles.pickerText}>
-                    {philId ? "PhilID Captured" : "Capture PhilID"}
-                  </Text>
-                  <Ionicons name="camera" size={18} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
-                {philId && (
-                  <>
-                    <Image
-                      source={{ uri: philId }}
-                      style={styles.previewImage}
-                    />
-                    <TouchableOpacity
-                      style={styles.retakeBtn}
-                      onPress={() => takePhoto(setPhilId)}
-                    >
-                      <Text style={styles.retakeText}>Retake Photo</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            )}
-
-            {idType === "voterId" && (
-              <View style={styles.inputWrapper}>
-                <Text style={styles.inputLabel}>Voter's ID</Text>
-
-                <TouchableOpacity
-                  style={styles.pickerBtn}
-                  onPress={() => takePhoto(setVoterId)}
-                >
-                  <Text style={styles.pickerText}>
-                    {voterId ? "Voter ID Captured" : "Capture Voter's ID"}
-                  </Text>
-                  <Ionicons name="camera" size={18} color={COLORS.textMuted} />
-                </TouchableOpacity>
-
-                {voterId && (
-                  <>
-                    <Image
-                      source={{ uri: voterId }}
-                      style={styles.previewImage}
-                    />
-                    <TouchableOpacity
-                      style={styles.retakeBtn}
-                      onPress={() => takePhoto(setVoterId)}
-                    >
-                      <Text style={styles.retakeText}>Retake Photo</Text>
-                    </TouchableOpacity>
-                  </>
-                )}
-              </View>
-            )}
-
-            {/* Barangay Picker */}
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>{t("barangay")}</Text>
-              <TouchableOpacity
-                style={[
-                  styles.pickerBtn,
-                  errors.barangay && styles.pickerError,
-                ]}
-                onPress={() => setShowBarangayPicker(!showBarangayPicker)}
-              >
-                <Text
-                  style={[
-                    styles.pickerText,
-                    !form.barangay && styles.pickerPlaceholder,
-                  ]}
-                >
-                  {form.barangay || t("selectBarangay")}
-                </Text>
-                <Ionicons
-                  name={showBarangayPicker ? "chevron-up" : "chevron-down"}
-                  size={18}
-                  color={COLORS.textMuted}
-                />
-              </TouchableOpacity>
-              {errors.barangay ? (
-                <Text style={styles.errorText}>{errors.barangay}</Text>
-              ) : null}
-
-              {showBarangayPicker && (
-                <View style={styles.dropdown}>
+              {showPicker && (
+                <View style={S.dropdown}>
                   <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
                     {BARANGAYS.map((b) => (
                       <TouchableOpacity
                         key={b}
                         style={[
-                          styles.dropdownItem,
-                          form.barangay === b && styles.dropdownItemActive,
+                          S.dropdownItem,
+                          form.barangay === b && S.dropdownItemActive,
                         ]}
                         onPress={() => {
                           set("barangay", b);
-                          setShowBarangayPicker(false);
+                          setShowPicker(false);
                         }}
                       >
                         <Text
                           style={[
-                            styles.dropdownText,
-                            form.barangay === b && styles.dropdownTextActive,
+                            S.dropdownText,
+                            form.barangay === b && {
+                              color: COLORS.primaryLight,
+                              fontWeight: "700",
+                            },
                           ]}
                         >
                           {b}
                         </Text>
                         {form.barangay === b && (
                           <Ionicons
-                            name="checkmark"
+                            name="checkmark-circle"
                             size={16}
-                            color={COLORS.primary}
+                            color={COLORS.primaryLight}
                           />
                         )}
                       </TouchableOpacity>
@@ -402,19 +283,28 @@ export default function Registerscreen({ navigation }) {
             </View>
 
             <PrimaryButton
-              title={t("register")}
+              title="Create Account"
               onPress={handleRegister}
               loading={loading}
               style={{ marginTop: 8 }}
             />
 
-            <TouchableOpacity
-              style={styles.switchRow}
-              onPress={() => navigation.navigate("Login")}
-            >
-              <Text style={styles.switchText}>{t("hasAccount")} </Text>
-              <Text style={styles.switchLink}>{t("login")}</Text>
-            </TouchableOpacity>
+            <View style={S.loginRow}>
+              <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
+                Already have an account?{" "}
+              </Text>
+              <TouchableOpacity onPress={() => navigation.navigate("Login")}>
+                <Text
+                  style={{
+                    color: COLORS.primaryLight,
+                    fontSize: 14,
+                    fontWeight: "700",
+                  }}
+                >
+                  Sign In
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -422,121 +312,138 @@ export default function Registerscreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
-  gradient: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 24, paddingTop: 60 },
-
-  previewImage: {
-    width: "100%",
-    height: 120,
-    borderRadius: 12,
-    marginTop: 10,
+const S = StyleSheet.create({
+  scroll: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
 
-  retakeBtn: {
-    marginTop: 8,
-    padding: 10,
-    borderRadius: 8,
-    backgroundColor: COLORS.primary + "22",
-    alignItems: "center",
+  glowBlob: {
+    position: "absolute",
+    top: -80,
+    left: "50%",
+    marginLeft: -140,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: COLORS.primary,
+    opacity: 0.07,
   },
 
-  retakeText: {
-    color: COLORS.primary,
-    fontWeight: "600",
-  },
   langRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
     gap: 6,
     marginBottom: 16,
   },
-  langBtn: {
+  langChip: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    borderRadius: 20,
+    borderRadius: RADIUS.full,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  langBtnActive: {
+  langChipActive: {
     backgroundColor: COLORS.primary,
     borderColor: COLORS.primary,
   },
-  langBtnText: { color: COLORS.textMuted, fontSize: 11, fontWeight: "700" },
-  langBtnTextActive: { color: "#fff" },
+  langText: { color: COLORS.textMuted, fontSize: 11, fontWeight: "700" },
+  langTextActive: { color: "#fff" },
 
-  headerRow: {
+  topRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 16,
   },
-  backBtn: { padding: 6 },
-  logoSmall: {
-    width: 40,
-    height: 40,
+  backBtn: {
+    width: 36,
+    height: 36,
     borderRadius: 10,
     backgroundColor: COLORS.bgCard,
-    alignItems: "center",
-    justifyContent: "center",
     borderWidth: 1,
     borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  logoSmall: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: COLORS.bgCard,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   pageTitle: {
     color: COLORS.textPrimary,
-    fontSize: 28,
-    fontWeight: "900",
+    fontSize: 26,
+    fontWeight: "800",
+    letterSpacing: -0.4,
     marginBottom: 4,
   },
-  pageSubtitle: { color: COLORS.textSecondary, fontSize: 14, marginBottom: 24 },
+  pageSubtitle: { color: COLORS.textSecondary, fontSize: 13, marginBottom: 20 },
+
+  noticeBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    backgroundColor: "rgba(37,99,235,0.08)",
+    borderRadius: RADIUS.lg,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(37,99,235,0.2)",
+    marginBottom: 20,
+  },
+  noticeTitle: {
+    color: COLORS.primaryLight,
+    fontSize: 13,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  noticeText: { color: COLORS.textSecondary, fontSize: 12, lineHeight: 18 },
 
   card: {
     backgroundColor: COLORS.bgCard,
-    borderRadius: 20,
+    borderRadius: RADIUS["2xl"],
     padding: 24,
     borderWidth: 1,
     borderColor: COLORS.border,
+    ...SHADOWS.card,
   },
 
-  passwordWrapper: { position: "relative", marginBottom: 16 },
-  eyeBtn: { position: "absolute", right: 14, bottom: 14 },
-
-  inputWrapper: { marginBottom: 16 },
-  inputLabel: {
-    color: COLORS.textSecondary,
-    fontSize: 12,
-    fontWeight: "600",
+  fieldLabel: {
+    color: COLORS.textMuted,
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.8,
     marginBottom: 8,
-    letterSpacing: 0.3,
   },
-  errorText: { color: COLORS.statusRejected, fontSize: 11, marginTop: 4 },
 
-  pickerBtn: {
+  picker: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     backgroundColor: COLORS.bgCardAlt,
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: RADIUS.md,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
     borderWidth: 1,
     borderColor: COLORS.border,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
   },
-  pickerError: { borderColor: COLORS.statusRejected },
-  pickerText: { color: COLORS.textPrimary, fontSize: 15 },
-  pickerPlaceholder: { color: COLORS.textMuted },
+  pickerError: { borderColor: COLORS.danger },
+  pickerText: { flex: 1, color: COLORS.textPrimary, fontSize: 14 },
 
   dropdown: {
-    position: "absolute",
-    top: 72,
-    left: 0,
-    right: 0,
     backgroundColor: COLORS.bgCardAlt,
-    borderRadius: 12,
+    borderRadius: RADIUS.md,
     borderWidth: 1,
     borderColor: COLORS.border,
-    zIndex: 100,
-    elevation: 5,
+    marginTop: 4,
     overflow: "hidden",
   },
   dropdownItem: {
@@ -545,13 +452,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 14,
     borderBottomWidth: 1,
-    borderBottomColor: COLORS.divider,
+    borderBottomColor: COLORS.border,
   },
-  dropdownItemActive: { backgroundColor: COLORS.primary + "22" },
+  dropdownItemActive: { backgroundColor: COLORS.primary + "18" },
   dropdownText: { color: COLORS.textSecondary, fontSize: 14 },
-  dropdownTextActive: { color: COLORS.primary, fontWeight: "700" },
 
-  switchRow: { flexDirection: "row", justifyContent: "center", marginTop: 20 },
-  switchText: { color: COLORS.textSecondary, fontSize: 14 },
-  switchLink: { color: COLORS.primary, fontSize: 14, fontWeight: "700" },
+  loginRow: { flexDirection: "row", justifyContent: "center", marginTop: 20 },
 });
