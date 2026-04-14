@@ -41,6 +41,7 @@ const STATUS_COLORS = {
 
 
 // --- ICONS ---
+const createIcon = (color) =>
   new L.DivIcon({
     className: "custom-pin",
     iconSize: [28, 36],
@@ -168,6 +169,12 @@ export function MapView() {
     setSearchResults(results.slice(0, 5));
   };
 
+  const triggerSearch = async () => {
+    if (searchQuery.length < 3) { setSearchResults([]); return; }
+    const results = await provider.search({ query: searchQuery });
+    setSearchResults(results.slice(0, 5));
+  };
+
   const handleSelectResult = (result) => {
     setFlyCoords([result.y, result.x]);
     setSearchQuery(result.label);
@@ -223,11 +230,18 @@ export function MapView() {
         {/* Custom Search Bar — needs pointer-events re-enabled */}
         <div style={{ position: "relative", pointerEvents: "all" }}>
           <div className={s.glass} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px" }}>
-            <span style={{ fontSize: 18, opacity: 0.6 }}>🔍</span>
+            <button 
+              onClick={triggerSearch}
+              style={{ background: "none", border: "none", cursor: "pointer", fontSize: 18, opacity: 0.8, padding: 0 }}
+              title="Search"
+            >
+              🔍
+            </button>
             <input
               className={s.searchInput}
               value={searchQuery}
               onChange={handleSearch}
+              onKeyDown={(e) => e.key === 'Enter' && triggerSearch()}
               placeholder="Search address..."
               style={{
                 flex: 1,
