@@ -1,202 +1,400 @@
-// MapView.jsx
-import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, query } from 'firebase/firestore';
-import { db } from '../firebase';
+import React, { useEffect, useState } from "react";
+import { collection, onSnapshot, query } from "firebase/firestore";
+import { db } from "../firebase";
 
-const STATUS_COLORS = { Pending: '#FFB800', 'In Progress': '#1A6BFF', Resolved: '#00D4AA', Rejected: '#FF4444' };
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+
+// 🔌 Plugins (must come after leaflet)
+import "leaflet-routing-machine";
+import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
+import { OpenStreetMapProvider } from "leaflet-geosearch";
+
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import MarkerClusterGroup from "react-leaflet-cluster";
+
+// 📦 Cluster CSS
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+
+// 🎨 MapView styles
+import s from "../styles/MapView.module.css";
+
+// 🔧 Fix blank/broken marker icons in CRA + Leaflet
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+delete L.Icon.Default.prototype._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
+
+const STATUS_COLORS = {
+  Pending: "#FFB800",
+  "In Progress": "#1A6BFF",
+  Resolved: "#00D4AA",
+  Rejected: "#FF4444",
+};
+
+
+
+// --- ICONS ---
+  new L.DivIcon({
+    className: "custom-pin",
+    iconSize: [28, 36],
+    iconAnchor: [14, 36],
+    html: `
+      <svg width="28" height="36" viewBox="0 0 24 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 0C5.373 0 0 5.373 0 12c0 8 12 20 12 20S24 20 24 12C24 5.373 18.627 0 12 0z"
+          fill="${color}" stroke="white" stroke-width="1.5"/>
+        <circle cx="12" cy="12" r="4.5" fill="white"/>
+      </svg>
+    `,
+  });
+
+const pulseIcon = new L.DivIcon({
+  className: "custom-pin",
+  iconSize: [24, 24],
+  iconAnchor: [12, 24],
+  html: `
+    <div style="position:relative; width:24px; height:24px;">
+      <div style="background:#1A6BFF; width:16px; height:16px; border-radius:50%; border:3px solid white; position:absolute; top:4px; left:4px; z-index:2;"></div>
+      <div style="background:#1A6BFF; width:16px; height:16px; border-radius:50%; position:absolute; top:4px; left:4px; animation:pulse 1.5s infinite;"></div>
+    </div>
+  `,
+});
+
+function Routing({ selected }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const route = L.Routing.control({
+      waypoints: [
+        L.latLng(10.7202, 122.5621), // default start (can be user later)
+        L.latLng(selected.location.latitude, selected.location.longitude),
+      ],
+      show: false,
+    }).addTo(map);
+
+    return () => map.removeControl(route);
+  }, [selected]);
+
+  return null;
+}
+
+function FlyToMarker({ selected }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!selected) return;
+
+    map.flyTo([selected.location.latitude, selected.location.longitude], 16, {
+      duration: 1.5,
+    });
+  }, [selected]);
+
+  return null;
+}
+
+function FlyToLocation({ coords }) {
+  const map = useMap();
+  useEffect(() => {
+    if (!coords) return;
+    map.flyTo(coords, 16, { duration: 1.5 });
+  }, [coords]);
+  return null;
+}
+// Auto fit map
+function FitBounds({ data, filter }) {
+  const map = useMap();
+  const lastFilter = React.useRef(filter);
+
+  useEffect(() => {
+    if (!data.length) return;
+
+    // Only auto-fit on filter change OR initial load
+    if (lastFilter.current !== filter || lastFilter.current === undefined) {
+      const bounds = L.latLngBounds(
+        data.map((c) => [c.location.latitude, c.location.longitude]),
+      );
+      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 15 });
+      lastFilter.current = filter;
+    }
+  }, [data, filter]);
+
+  return null;
+}
 
 export function MapView() {
   const [concerns, setConcerns] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [filter, setFilter] = useState('All');
+  const [filter, setFilter] = useState("All");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [flyCoords, setFlyCoords] = useState(null);
+  const provider = new OpenStreetMapProvider();
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'concerns')), snap => {
-      setConcerns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    let firstLoad = true;
+    const unsub = onSnapshot(query(collection(db, "concerns")), (snap) => {
+      const newData = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+      setConcerns((prev) => {
+        // detect new entries after initial load
+        if (!firstLoad && newData.length > prev.length) {
+          console.log("🔥 New concern added!");
+        }
+        firstLoad = false;
+        return newData;
+      });
     });
+
     return unsub;
   }, []);
 
-  const filtered = concerns.filter(c => c.location?.latitude && (filter === 'All' || c.status === filter));
-
-  return (
-    <div style={{ padding: 32 }}>
-      <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, marginBottom: 8 }}>🗺️ Concerns Map</h1>
-      <p style={{ color: '#8899BB', marginBottom: 20 }}>Geographic distribution of {filtered.length} concerns</p>
-
-      {/* Filter */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-        {['All', 'Pending', 'In Progress', 'Resolved', 'Rejected'].map(s => (
-          <button key={s} onClick={() => setFilter(s)} style={{
-            padding: '6px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 12, fontWeight: 600,
-            backgroundColor: filter === s ? '#1A6BFF' : '#162B4D',
-            color: filter === s ? '#fff' : '#8899BB',
-            border: `1px solid ${filter === s ? '#1A6BFF' : '#1E3355'}`,
-          }}>{s}</button>
-        ))}
-      </div>
-
-      {/* Map placeholder — in production use react-leaflet */}
-      <div style={{ backgroundColor: '#112240', borderRadius: 16, border: '1px solid #1E3355', overflow: 'hidden' }}>
-        <div style={{ backgroundColor: '#0D2137', height: 480, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 16, position: 'relative' }}>
-          <div style={{ fontSize: 48 }}>🗺️</div>
-          <p style={{ color: '#8899BB', fontSize: 15 }}>Interactive map — powered by Leaflet + OpenStreetMap</p>
-          <p style={{ color: '#4A5A7A', fontSize: 13 }}>Install react-leaflet and configure to show {filtered.length} concern markers</p>
-          {/* Concern pins preview */}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'center', maxWidth: 600 }}>
-            {filtered.slice(0, 10).map(c => (
-              <div key={c.id} onClick={() => setSelected(c)} style={{
-                backgroundColor: (STATUS_COLORS[c.status] || '#8899BB') + '33',
-                border: `1px solid ${STATUS_COLORS[c.status] || '#8899BB'}`,
-                borderRadius: 20, padding: '4px 10px', cursor: 'pointer',
-                color: STATUS_COLORS[c.status] || '#8899BB', fontSize: 11, fontWeight: 600,
-              }}>📍 {c.title?.slice(0, 25)}...</div>
-            ))}
-          </div>
-        </div>
-
-        {/* Legend */}
-        <div style={{ display: 'flex', gap: 16, padding: 16, borderTop: '1px solid #1E3355' }}>
-          {Object.entries(STATUS_COLORS).map(([s, c]) => (
-            <div key={s} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c }} />
-              <span style={{ color: '#8899BB', fontSize: 12 }}>{s}: {concerns.filter(x => x.status === s).length}</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Selected Concern */}
-      {selected && (
-        <div style={{ backgroundColor: '#112240', borderRadius: 14, padding: 20, border: '1px solid #1E3355', marginTop: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-            <h3 style={{ color: '#fff', margin: 0 }}>{selected.title}</h3>
-            <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: '#8899BB', cursor: 'pointer', fontSize: 18 }}>✕</button>
-          </div>
-          <p style={{ color: '#8899BB', fontSize: 13, marginTop: 8 }}>{selected.description?.slice(0, 150)}...</p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-            <span style={{ color: STATUS_COLORS[selected.status], backgroundColor: STATUS_COLORS[selected.status] + '22', padding: '3px 10px', borderRadius: 20, fontSize: 12, fontWeight: 700 }}>{selected.status}</span>
-            <span style={{ color: '#8899BB', fontSize: 12 }}>📍 {selected.location?.address}</span>
-          </div>
-          <a href={`/concerns/${selected.id}`} style={{ display: 'inline-block', marginTop: 12, color: '#1A6BFF', fontSize: 13, fontWeight: 700 }}>View Full Details →</a>
-        </div>
-      )}
-    </div>
+  const filtered = concerns.filter(
+    (c) => c.location?.latitude && (filter === "All" || c.status === filter),
   );
-}
 
-// Users.jsx
-export function Users() {
-  const [users, setUsers] = useState([]);
+  const handleSearch = async (e) => {
+    const q = e.target.value;
+    setSearchQuery(q);
+    if (q.length < 3) { setSearchResults([]); return; }
+    const results = await provider.search({ query: q });
+    setSearchResults(results.slice(0, 5));
+  };
 
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'users')), snap => {
-      setUsers(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(u => u.role !== 'admin'));
-    });
-    return unsub;
-  }, []);
+  const handleSelectResult = (result) => {
+    setFlyCoords([result.y, result.x]);
+    setSearchQuery(result.label);
+    setSearchResults([]);
+  };
 
   return (
-    <div style={{ padding: 32 }}>
-      <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, marginBottom: 4 }}>👥 Registered Citizens</h1>
-      <p style={{ color: '#8899BB', marginBottom: 24 }}>{users.length} citizens registered</p>
+    <div className={s.container}>
+      {/* 🔥 FULLSCREEN MAP */}
+      <MapContainer
+        center={[10.7202, 122.5621]}
+        zoom={13}
+        zoomControl={false}
+        style={{ height: "100%", width: "100%" }}
+      >
+        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
 
-      <div style={{ backgroundColor: '#112240', borderRadius: 16, border: '1px solid #1E3355', overflow: 'hidden' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#162B4D' }}>
-              {['Citizen', 'Email', 'Phone', 'Barangay', 'Joined'].map(h => (
-                <th key={h} style={{ color: '#8899BB', fontSize: 11, fontWeight: 700, textAlign: 'left', padding: '12px 16px', textTransform: 'uppercase', letterSpacing: 0.5 }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {users.map(u => (
-              <tr key={u.id} style={{ borderBottom: '1px solid #1E3355' }}>
-                <td style={{ padding: '12px 16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 34, height: 34, borderRadius: 8, backgroundColor: '#1A6BFF', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 800, fontSize: 13 }}>
-                      {u.name?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
-                    </div>
-                    <span style={{ color: '#fff', fontWeight: 600, fontSize: 13 }}>{u.name}</span>
+        <FitBounds data={filtered} filter={filter} />
+        <FlyToMarker selected={selected} />
+        <FlyToLocation coords={flyCoords} />
+        <Routing selected={selected} />
+
+        <MarkerClusterGroup chunkedLoading>
+          {filtered.map((c) => {
+            const color = STATUS_COLORS[c.status] || "#8899BB";
+
+            return (
+              <Marker
+                key={c.id}
+                position={[c.location.latitude, c.location.longitude]}
+                icon={
+                  c.status === "In Progress" ? pulseIcon : createIcon(color)
+                }
+                eventHandlers={{
+                  click: () => setSelected(c),
+                }}
+              >
+                <Popup className="premium-popup">
+                  <div style={{ color: "#000" }}>
+                    <strong>{c.title}</strong>
+                    <br />
+                    <span style={{ color: color }}>● {c.status}</span>
                   </div>
-                </td>
-                <td style={{ padding: '12px 16px', color: '#8899BB', fontSize: 13 }}>{u.email}</td>
-                <td style={{ padding: '12px 16px', color: '#8899BB', fontSize: 13 }}>{u.phone || '—'}</td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{ backgroundColor: '#1A6BFF22', color: '#4D8FFF', padding: '3px 8px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>{u.barangay}</span>
-                </td>
-                <td style={{ padding: '12px 16px', color: '#4A5A7A', fontSize: 12 }}>
-                  {u.createdAt?.toDate?.()?.toLocaleDateString('en-PH') || '—'}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {users.length === 0 && <div style={{ padding: 40, textAlign: 'center', color: '#8899BB' }}>No citizens registered yet.</div>}
-      </div>
-    </div>
-  );
-}
+                </Popup>
+              </Marker>
+            );
+          })}
+        </MarkerClusterGroup>
+      </MapContainer>
 
-// Reports.jsx
-export function Reports() {
-  const [concerns, setConcerns] = useState([]);
-
-  useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'concerns')), snap => {
-      setConcerns(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-    });
-    return unsub;
-  }, []);
-
-  const total = concerns.length;
-  const resolved = concerns.filter(c => c.status === 'Resolved').length;
-  const rate = total ? Math.round((resolved / total) * 100) : 0;
-  const avgUpvotes = total ? Math.round(concerns.reduce((s, c) => s + (c.upvotes || 0), 0) / total) : 0;
-
-  const byBarangay = Object.entries(
-    concerns.reduce((acc, c) => { if (c.userBarangay) acc[c.userBarangay] = (acc[c.userBarangay] || 0) + 1; return acc; }, {})
-  ).sort((a, b) => b[1] - a[1]).slice(0, 8);
-
-  return (
-    <div style={{ padding: 32 }}>
-      <h1 style={{ color: '#fff', fontSize: 26, fontWeight: 800, marginBottom: 4 }}>📈 Reports & Analytics</h1>
-      <p style={{ color: '#8899BB', marginBottom: 24 }}>Summary of CitiVoice concern data</p>
-
-      {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 14, marginBottom: 24 }}>
-        {[
-          { label: 'Total Concerns', value: total, icon: '📋', color: '#1A6BFF' },
-          { label: 'Resolution Rate', value: `${rate}%`, icon: '🎯', color: '#00D4AA' },
-          { label: 'Avg Upvotes/Concern', value: avgUpvotes, icon: '👍', color: '#FFB800' },
-          { label: 'Active Concerns', value: concerns.filter(c => c.status === 'In Progress').length, icon: '🔄', color: '#FF6B35' },
-        ].map((k, i) => (
-          <div key={i} style={{ backgroundColor: '#112240', borderRadius: 14, padding: 20, border: '1px solid #1E3355', borderTopWidth: 3, borderTopColor: k.color, textAlign: 'center' }}>
-            <div style={{ fontSize: 28, marginBottom: 10 }}>{k.icon}</div>
-            <div style={{ color: k.color, fontSize: 28, fontWeight: 800 }}>{k.value}</div>
-            <div style={{ color: '#8899BB', fontSize: 12, marginTop: 4 }}>{k.label}</div>
+      {/* 🧭 FLOATING CONTROLS: Search + Chips */}
+      <div className={s.floatingControls}>
+        {/* Custom Search Bar — needs pointer-events re-enabled */}
+        <div style={{ position: "relative", pointerEvents: "all" }}>
+          <div className={s.glass} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 16px" }}>
+            <span style={{ fontSize: 18, opacity: 0.6 }}>🔍</span>
+            <input
+              className={s.searchInput}
+              value={searchQuery}
+              onChange={handleSearch}
+              placeholder="Search address..."
+              style={{
+                flex: 1,
+                background: "transparent",
+                border: "none",
+                color: "#fff",
+                fontSize: 15,
+                fontWeight: 600,
+                fontFamily: "inherit",
+              }}
+            />
+            {searchQuery && (
+              <button
+                onClick={() => { setSearchQuery(""); setSearchResults([]); }}
+                style={{ background: "none", border: "none", color: "#8899BB", cursor: "pointer", fontSize: 18, lineHeight: 1 }}
+              >✕</button>
+            )}
           </div>
-        ))}
+          {/* Results Dropdown */}
+          {searchResults.length > 0 && (
+            <div className={s.glass} style={{
+              position: "absolute",
+              top: "calc(100% + 8px)",
+              left: 0,
+              right: 0,
+              zIndex: 2000,
+              padding: 0,
+              overflow: "hidden",
+            }}>
+              {searchResults.map((r, i) => (
+                <div
+                  key={i}
+                  className={s.searchResultItem}
+                  onClick={() => handleSelectResult(r)}
+                  style={{
+                    padding: "12px 16px",
+                    cursor: "pointer",
+                    color: "#fff",
+                    fontSize: 14,
+                    borderBottom: i < searchResults.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                  }}
+                >
+                  <span style={{ marginRight: 10, opacity: 0.5 }}>📍</span>
+                  {r.label}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Status Filter Chips — needs pointer-events re-enabled */}
+        <div style={{
+          display: "flex",
+          gap: 8,
+          overflowX: "auto",
+          scrollbarWidth: "none",
+          msOverflowStyle: "none",
+          pointerEvents: "all",
+        }} className={s.chipRow}>
+          {[
+            { label: "All",         color: "#1A6BFF" },
+            { label: "Pending",     color: "#FFB800" },
+            { label: "In Progress", color: "#1A6BFF" },
+            { label: "Resolved",    color: "#00D4AA" },
+            { label: "Rejected",    color: "#FF4444" },
+          ].map(({ label, color }) => {
+            const isActive = filter === label;
+            return (
+              <button
+                key={label}
+                onClick={() => setFilter(label)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "8px 16px",
+                  borderRadius: 999,
+                  cursor: "pointer",
+                  fontSize: 12,
+                  whiteSpace: "nowrap",
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  background: isActive ? color : "rgba(13, 25, 48, 0.75)",
+                  color: isActive ? "#fff" : "#8899BB",
+                  border: isActive ? `1px solid ${color}` : "1px solid rgba(255,255,255,0.12)",
+                  backdropFilter: "blur(12px)",
+                  WebkitBackdropFilter: "blur(12px)",
+                  boxShadow: isActive ? `0 0 12px ${color}55` : "0 4px 12px rgba(0,0,0,0.3)",
+                  transition: "all 0.2s",
+                }}
+              >
+                {label !== "All" && (
+                  <span style={{
+                    width: 7, height: 7, borderRadius: "50%",
+                    background: isActive ? "#fff" : color,
+                    display: "inline-block", flexShrink: 0,
+                  }} />
+                )}
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
       </div>
 
-      {/* By Barangay */}
-      <div style={{ backgroundColor: '#112240', borderRadius: 16, padding: 20, border: '1px solid #1E3355' }}>
-        <h3 style={{ color: '#fff', fontWeight: 700, marginTop: 0, marginBottom: 16 }}>📍 Concerns by Barangay</h3>
-        {byBarangay.map(([brgy, count]) => {
-          const pct = total ? Math.round((count / total) * 100) : 0;
-          return (
-            <div key={brgy} style={{ marginBottom: 12 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-                <span style={{ color: '#fff', fontSize: 13 }}>{brgy}</span>
-                <span style={{ color: '#1A6BFF', fontSize: 13, fontWeight: 700 }}>{count} ({pct}%)</span>
-              </div>
-              <div style={{ height: 6, backgroundColor: '#1E3355', borderRadius: 3 }}>
-                <div style={{ height: 6, backgroundColor: '#1A6BFF', borderRadius: 3, width: `${pct}%`, transition: 'width 1s' }} />
+      {/* 📋 SIDE PANEL */}
+      <div
+        className={`${s.sidePanel} ${s.glass}`}
+        style={{
+          transform: selected ? "translateX(24px) translateY(24px) scale(1)" : "translateX(-110%)",
+          height: "calc(100% - 48px)",
+          borderRadius: 24,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h2 style={{ color: "#fff", fontSize: 22, fontWeight: 800 }}>Problem Details</h2>
+          <button
+            onClick={() => setSelected(null)}
+            style={{
+              background: "rgba(255,255,255,0.1)",
+              border: "none",
+              color: "#fff",
+              borderRadius: "50%",
+              width: 32,
+              height: 32,
+              cursor: "pointer",
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {selected && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ width: "100%", height: 180, backgroundColor: "#162B4D", borderRadius: 16, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 40 }}>
+              🖼️
+            </div>
+
+            <div>
+              <span style={{ backgroundColor: STATUS_COLORS[selected.status] + "20", color: STATUS_COLORS[selected.status], padding: "4px 12px", borderRadius: 20, fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1 }}>
+                {selected.status}
+              </span>
+              <h3 style={{ color: "#fff", fontSize: 24, marginTop: 12, lineHeight: 1.2 }}>
+                {selected.title}
+              </h3>
+            </div>
+
+            <p style={{ color: "#8899BB", fontSize: 15, lineHeight: 1.6 }}>
+              {selected.description}
+            </p>
+
+            <div style={{ padding: 16, borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: "auto" }}>
+              <div style={{ display: "flex", gap: 10, color: "#fff", alignItems: "flex-start" }}>
+                <span style={{ fontSize: 20 }}>📍</span>
+                <div>
+                  <div style={{ fontWeight: 600 }}>Location</div>
+                  <div style={{ color: "#8899BB", fontSize: 14 }}>{selected.location?.address}</div>
+                </div>
               </div>
             </div>
-          );
-        })}
+
+            <button style={{ width: "100%", padding: "16px", borderRadius: 14, border: "none", backgroundColor: "#1A6BFF", color: "#fff", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>
+              View More Details
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
