@@ -53,12 +53,12 @@ export default function RegisterScreen({ navigation }) {
 
   const validate = () => {
     const e = {};
-    if (!form.name.trim()) e.name = "Full name is required";
-    if (!form.email.trim()) e.email = "Email is required";
-    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = "Enter a valid email";
-    if (!form.password) e.password = "Password is required";
-    else if (form.password.length < 6) e.password = "At least 6 characters";
-    if (!form.barangay) e.barangay = "Select your barangay";
+    if (!form.name.trim()) e.name = t('required');
+    if (!form.email.trim()) e.email = t('required');
+    else if (!/\S+@\S+\.\S+/.test(form.email)) e.email = t('invalidEmail');
+    if (!form.password) e.password = t('required');
+    else if (form.password.length < 6) e.password = t('passwordMin');
+    if (!form.barangay) e.barangay = t('selectBarangay');
     setErrors(e);
     return !Object.keys(e).length;
   };
@@ -79,8 +79,8 @@ export default function RegisterScreen({ navigation }) {
         "auth/weak-password": "Password is too weak.",
       };
       Alert.alert(
-        "Registration Failed",
-        map[err.code] || err.message || "Please try again.",
+        t('registrationFailed'),
+        map[err.code] || err.message || t('error'),
       );
     } finally {
       setLoading(false);
@@ -141,8 +141,8 @@ export default function RegisterScreen({ navigation }) {
             </View>
           </View>
 
-          <Text style={S.pageTitle}>Create Account</Text>
-          <Text style={S.pageSubtitle}>Join CitiVoice — Kabankalan City</Text>
+          <Text style={S.pageTitle}>{t('register')}</Text>
+          <Text style={S.pageSubtitle}>{t('joinCommunity')}</Text>
 
           {/* Verification notice */}
           <View style={S.noticeBox}>
@@ -152,10 +152,9 @@ export default function RegisterScreen({ navigation }) {
               color={COLORS.primaryLight}
             />
             <View style={{ flex: 1 }}>
-              <Text style={S.noticeTitle}>Verification Required</Text>
+              <Text style={S.noticeTitle}>{t('verificationRequired')}</Text>
               <Text style={S.noticeText}>
-                After registering, you'll need to submit a valid government ID
-                for admin approval before accessing the app.
+                {t('verificationNotice')}
               </Text>
             </View>
           </View>
@@ -163,7 +162,7 @@ export default function RegisterScreen({ navigation }) {
           {/* Form */}
           <View style={S.card}>
             <InputField
-              label="FULL NAME"
+              label={t('fullName').toUpperCase()}
               value={form.name}
               onChangeText={(v) => set("name", v)}
               placeholder="Juan dela Cruz"
@@ -173,7 +172,7 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <InputField
-              label="EMAIL ADDRESS"
+              label={t('email').toUpperCase()}
               value={form.email}
               onChangeText={(v) => set("email", v)}
               placeholder="you@example.com"
@@ -184,10 +183,10 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <InputField
-              label="PASSWORD"
+              label={t('password').toUpperCase()}
               value={form.password}
               onChangeText={(v) => set("password", v)}
-              placeholder="At least 6 characters"
+              placeholder={t('passwordMin')}
               secureTextEntry={!showPw}
               leftIcon="lock-closed-outline"
               rightElement={
@@ -206,7 +205,7 @@ export default function RegisterScreen({ navigation }) {
             />
 
             <InputField
-              label="PHONE NUMBER"
+              label={t('phone').toUpperCase()}
               value={form.phone}
               onChangeText={(v) => set("phone", v)}
               placeholder="09XXXXXXXXX"
@@ -216,7 +215,7 @@ export default function RegisterScreen({ navigation }) {
 
             {/* Barangay picker */}
             <View style={{ marginBottom: 14 }}>
-              <Text style={S.fieldLabel}>BARANGAY</Text>
+              <Text style={S.fieldLabel}>{t('barangay').toUpperCase()}</Text>
               <TouchableOpacity
                 style={[S.picker, errors.barangay && S.pickerError]}
                 onPress={() => setShowPicker((p) => !p)}
@@ -232,7 +231,7 @@ export default function RegisterScreen({ navigation }) {
                     !form.barangay && { color: COLORS.textMuted },
                   ]}
                 >
-                  {form.barangay || "Select your barangay"}
+                  {form.barangay || t('selectBarangay')}
                 </Text>
                 <Ionicons
                   name={showPicker ? "chevron-up" : "chevron-down"}
@@ -300,7 +299,7 @@ export default function RegisterScreen({ navigation }) {
             </View>
 
             <PrimaryButton
-              title="Create Account"
+              title={t('register')}
               onPress={handleRegister}
               loading={loading}
               style={{ marginTop: 8 }}
@@ -308,7 +307,7 @@ export default function RegisterScreen({ navigation }) {
 
             <View style={S.loginRow}>
               <Text style={{ color: COLORS.textSecondary, fontSize: 14 }}>
-                Already have an account?{" "}
+                {t('hasAccount')}{" "}
               </Text>
               <TouchableOpacity onPress={() => navigation.navigate("Login")}>
                 <Text
@@ -318,7 +317,7 @@ export default function RegisterScreen({ navigation }) {
                     fontWeight: "700",
                   }}
                 >
-                  Sign In
+                  {t('login')}
                 </Text>
               </TouchableOpacity>
             </View>

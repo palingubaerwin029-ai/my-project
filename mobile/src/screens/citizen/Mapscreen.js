@@ -119,7 +119,7 @@ export default function MapScreen({ navigation }) {
       >
         <Ionicons name={mapType === 'standard' ? 'earth' : 'map'} size={24} color={COLORS.primary} />
         <Text style={styles.mapTypeToggleText}>
-          {mapType === 'standard' ? 'Satellite' : 'Standard'}
+          {mapType === 'standard' ? t('satellite') : t('standard')}
         </Text>
       </TouchableOpacity>
 

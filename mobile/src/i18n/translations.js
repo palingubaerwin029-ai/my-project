@@ -105,6 +105,13 @@ export const translations = {
     concernsMap: 'Concerns Map',
     reports: 'reports',
     viewFullDetails: 'View Full Details',
+    satellite: 'Satellite',
+    standard: 'Standard',
+
+    // New Keys
+    joinCommunity: 'Join CitiVoice — Kabankalan City',
+    verificationRequired: 'Verification Required',
+    verificationNotice: "After registering, you'll need to submit a valid government ID for admin approval before accessing the app.",
   },
 
   fil: {
@@ -204,6 +211,12 @@ export const translations = {
     concernsMap: 'Mapa ng mga Alalahanin',
     reports: 'ulat',
     viewFullDetails: 'Tingnan ang Buong Detalye',
+    satellite: 'Satellite',
+    standard: 'Standard',
+
+    joinCommunity: 'Sumali sa CitiVoice — Kabankalan City',
+    verificationRequired: 'Kinakailangan ang Pag-verify',
+    verificationNotice: 'Pagkatapos magparehistro, kailangan mong magpasa ng valid government ID para sa pag-apruba ng admin bago ma-access ang app.',
   },
 
   hil: {
@@ -303,6 +316,12 @@ export const translations = {
     concernsMap: 'Mapa sang mga Concern',
     reports: 'mga report',
     viewFullDetails: 'Tan-awa ang Bug-os nga Detalye',
+    satellite: 'Satellite',
+    standard: 'Standard',
+
+    joinCommunity: 'Upod sa CitiVoice — Kabankalan City',
+    verificationRequired: 'Kinahanglan ang Pag-verify',
+    verificationNotice: 'Pagkatapos mag-register, kinahanglan mo mag-submit sang valid government ID para sa admin approval antes mo ma-access ang app.',
   },
 };
 
