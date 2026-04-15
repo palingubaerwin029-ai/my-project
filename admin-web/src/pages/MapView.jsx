@@ -10,7 +10,7 @@ import "leaflet-routing-machine";
 import "leaflet-routing-machine/dist/leaflet-routing-machine.css";
 import { OpenStreetMapProvider } from "leaflet-geosearch";
 
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl, LayerGroup } from "react-leaflet";
 import MarkerClusterGroup from "react-leaflet-cluster";
 
 // 📦 Cluster CSS
@@ -75,7 +75,7 @@ function Routing({ selected }) {
 
     const route = L.Routing.control({
       waypoints: [
-        L.latLng(10.7202, 122.5621), // default start (can be user later)
+        L.latLng(9.9868, 122.8130), // default start (can be user later)
         L.latLng(selected.location.latitude, selected.location.longitude),
       ],
       show: false,
@@ -185,12 +185,31 @@ export function MapView() {
     <div className={s.container}>
       {/* 🔥 FULLSCREEN MAP */}
       <MapContainer
-        center={[10.7202, 122.5621]}
+        center={[9.9868, 122.8130]}
         zoom={13}
         zoomControl={false}
         style={{ height: "100%", width: "100%" }}
       >
-        <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
+        <LayersControl position="topright">
+          <LayersControl.BaseLayer checked name="Dark Matter">
+            <TileLayer 
+              url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" 
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            />
+          </LayersControl.BaseLayer>
+          <LayersControl.BaseLayer name="Positron (Light)">
+            <TileLayer 
+              url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" 
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            />
+          </LayersControl.BaseLayer>
+          <LayersControl.BaseLayer name="Satellite">
+            <TileLayer 
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}" 
+              attribution='Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EBP, and the GIS User Community'
+            />
+          </LayersControl.BaseLayer>
+        </LayersControl>
 
         <FitBounds data={filtered} filter={filter} />
         <FlyToMarker selected={selected} />
@@ -223,6 +242,28 @@ export function MapView() {
             );
           })}
         </MarkerClusterGroup>
+
+        {/* 🗺️ Map Legend Overlay */}
+        <div className={s.legendOverlay}>
+          <div className={s.legendHeader}>Status Guide</div>
+          {Object.entries(STATUS_COLORS).map(([status, color]) => (
+            <div key={status} className={s.legendItem}>
+              <span className={s.legendDot} style={{ background: color }} />
+              <span className={s.legendLabel}>{status}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* 🎯 Recenter Button */}
+        <div style={{ position: "absolute", bottom: 24, right: 24, zIndex: 1000, pointerEvents: "all" }}>
+           <button 
+             onClick={() => setFlyCoords([9.9868, 122.8130])}
+             className={s.recenterBtn}
+             title="Recenter Map"
+           >
+             🎯
+           </button>
+        </div>
       </MapContainer>
 
       {/* 🧭 FLOATING CONTROLS: Search + Chips */}

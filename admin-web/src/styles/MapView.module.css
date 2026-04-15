@@ -120,3 +120,119 @@
   flex-direction: column;
   gap: 20px;
 }
+
+/* --- Map Legend --- */
+.legendOverlay {
+  position: absolute;
+  top: 120px; /* Below floating controls */
+  left: 16px;
+  z-index: 1000;
+  background: rgba(13, 25, 48, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 16px;
+  min-width: 160px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  pointer-events: all;
+  transition: all 0.3s ease;
+}
+
+.legendHeader {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.legendItem:last-child {
+  margin-bottom: 0;
+}
+
+.legendDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+}
+
+.legendLabel {
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* --- Recenter Button --- */
+.recenterBtn {
+  background: rgba(13, 25, 48, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #fff;
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  font-size: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  transition: all 0.2s;
+}
+
+.recenterBtn:hover {
+  background: rgba(26, 107, 255, 0.4);
+  transform: translateY(-2px);
+  border-color: rgba(26, 107, 255, 0.5);
+}
+
+.recenterBtn:active {
+  transform: scale(0.95);
+}
+
+/* --- Leaflet Overrides --- */
+:global(.leaflet-control-layers) {
+  background: rgba(13, 25, 48, 0.8) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
+  color: #fff !important;
+  overflow: hidden;
+}
+
+:global(.leaflet-control-layers-list) {
+  padding: 8px;
+}
+
+:global(.leaflet-control-layers-base label) {
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+:global(.leaflet-control-layers-toggle) {
+  background-image: none !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px !important;
+  height: 44px !important;
+}
+
+:global(.leaflet-control-layers-toggle::after) {
+  content: '🗺️';
+  font-size: 20px;
+}

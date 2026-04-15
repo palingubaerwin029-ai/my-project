@@ -19,7 +19,7 @@ const PIN_COLORS = {
 
 // Default center: Iloilo City
 const DEFAULT_REGION = {
-  latitude: 10.7202, longitude: 122.5621,
+  latitude: 9.9868, longitude: 122.8130,
   latitudeDelta: 0.08, longitudeDelta: 0.08,
 };
 
@@ -29,6 +29,7 @@ export default function MapScreen({ navigation }) {
   const mapRef = useRef(null);
   const [statusFilter, setStatusFilter] = useState('All');
   const [selectedConcern, setSelectedConcern] = useState(null);
+  const [mapType, setMapType] = useState('standard');
 
   const pinnable = concerns.filter(c =>
     c.location?.latitude && c.location?.longitude &&
@@ -63,6 +64,7 @@ export default function MapScreen({ navigation }) {
         initialRegion={DEFAULT_REGION}
         showsUserLocation
         showsMyLocationButton
+        mapType={mapType}
       >
         {pinnable.map(c => (
           <Marker
@@ -109,6 +111,17 @@ export default function MapScreen({ navigation }) {
           </View>
         </ScrollView>
       </View>
+
+      {/* 🗺️ Map Type Toggle */}
+      <TouchableOpacity 
+        style={styles.mapTypeToggle} 
+        onPress={() => setMapType(prev => prev === 'standard' ? 'satellite' : 'standard')}
+      >
+        <Ionicons name={mapType === 'standard' ? 'earth' : 'map'} size={24} color={COLORS.primary} />
+        <Text style={styles.mapTypeToggleText}>
+          {mapType === 'standard' ? 'Satellite' : 'Standard'}
+        </Text>
+      </TouchableOpacity>
 
       {/* Legend */}
       <View style={styles.legend}>
@@ -187,12 +200,25 @@ const styles = StyleSheet.create({
 
   legend: {
     position: 'absolute', bottom: 160, right: 12,
-    backgroundColor: COLORS.bgCard + 'EE', borderRadius: 12,
-    padding: 10, gap: 6, borderWidth: 1, borderColor: COLORS.border,
+    backgroundColor: COLORS.bgCard + 'F5', borderRadius: 16,
+    padding: 12, gap: 8, borderWidth: 1, borderColor: COLORS.border,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2, shadowRadius: 8, elevation: 5,
   },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: COLORS.textPrimary, fontSize: 11, fontWeight: '600' },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  legendDot: { width: 12, height: 12, borderRadius: 6, borderWidth: 2, borderColor: 'rgba(255,255,255,0.2)' },
+  legendText: { color: COLORS.textPrimary, fontSize: 12, fontWeight: '700' },
+
+  mapTypeToggle: {
+    position: 'absolute', top: 80, right: 12,
+    backgroundColor: COLORS.bgCard + 'EE', borderRadius: 12,
+    padding: 10, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: COLORS.border,
+    gap: 4,
+  },
+  mapTypeToggleText: {
+    color: COLORS.primary, fontSize: 10, fontWeight: '800', textTransform: 'uppercase',
+  },
 
   bottomSheet: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
