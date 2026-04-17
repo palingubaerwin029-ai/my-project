@@ -25,7 +25,7 @@
 
 *   **Frontend (Web)**: React.js, React Router, CSS Modules, Lucide/Ionicons.
 *   **Mobile**: React Native, Expo, React Navigation.
-*   **Database & Auth**: Firebase Firestore (Realtime database) & Firebase Authentication.
+*   **Database, Auth & Backend**: Custom MySQL Database with an Express.js (Node.js) REST API, using JSON Web Tokens (JWT) for authentication.
 *   **Mapping**: Leaflet.js, OpenStreetMap, Leaflet-GeoSearch.
 *   **Design**: Custom-built premium glassmorphism design system.
 
@@ -35,8 +35,36 @@
 
 ### Prerequisites
 - Node.js (v18+)
+- MySQL Server (running locally or remote)
 - Expo Go (for mobile testing)
-- Firebase Project setup
+
+### ⚙️ Setting up the Backend API
+The backend provides REST API endpoints for both the admin web app and the mobile application.
+1. Navigate to the backend directory:
+   ```bash
+   cd backend
+   ```
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+3. Create a `.env` file in the `backend` directory with the following variables:
+   ```env
+   PORT=5000
+   DB_HOST=localhost
+   DB_PORT=3306
+   DB_USER=root
+   DB_PASSWORD=your_mysql_password
+   DB_NAME=citivoice
+   JWT_SECRET=citivoice_jwt_secret_key_2024
+   BASE_URL=http://localhost:5000
+   ```
+4. Configure your MySQL database:
+   Create a schema named `citivoice` in your MySQL server. Ensure the credentials in your `.env` match your MySQL setup.
+5. Start the development server:
+   ```bash
+   npm run dev
+   ```
 
 ### 🖥️ Running the Admin Portal
 1. Navigate to the web directory:
@@ -69,4 +97,4 @@
 ---
 
 ## 🔒 Security
-The project implements strict **Firebase Security Rules** to ensure that sensitive data like user lists and concern details are only accessible to authorized administrators or the owners of the data.
+The project utilizes **JWT-based Authentication and Authorization** over a custom REST API. Routes are protected via middleware to ensure that sensitive endpoints (like managing users or resolving concerns) are only accessible to verified administrators or the authenticated owners of the data. Additionally, an administrative approval process controls new user registrations.

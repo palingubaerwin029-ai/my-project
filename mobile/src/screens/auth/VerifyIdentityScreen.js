@@ -90,8 +90,8 @@ export default function VerifyIdentityScreen({ navigation }) {
       // Upload ID image to backend
       const idImageUrl = await ConcernService.uploadImage(idImage);
 
-      // Update Firestore user doc to pending
-      await submitVerification(user.uid, {
+      // Update Express user doc to pending
+      await submitVerification(user.id, {
         idType,
         idNumber: idNumber.trim(),
         idImageUrl,

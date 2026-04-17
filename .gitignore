@@ -36,3 +36,7 @@ yarn-error.log*
 *.mobileprovision
 *.orig
 *.bak
+
+# Backend Uploads
+backend/uploads/*
+!backend/uploads/.gitkeep
