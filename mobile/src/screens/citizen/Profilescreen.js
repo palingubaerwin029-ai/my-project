@@ -37,7 +37,8 @@ export default function ProfileScreen() {
   };
   const memberSince =
     (user?.created_at ? new Date(user.created_at) : null)
-      ?.toLocaleDateString("en-PH", { year: "numeric", month: "long" });
+      ?.toLocaleDateString("en-PH", { year: "numeric", month: "long" })
+      ;
   const handleLogout = () =>
     Alert.alert(t('signOut'), t('signOutConfirm'), [
       { text: t('cancel'), style: "cancel" },
