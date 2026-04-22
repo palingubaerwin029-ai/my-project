@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool   = require('../db');
 const auth   = require('../middleware/auth');
+const requireRole = require('../middleware/requireRole');
 
 // ─── List all announcements ───────────────────────────────────────────────────
 router.get('/', async (req, res) => {
@@ -8,12 +9,13 @@ router.get('/', async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM announcements ORDER BY created_at DESC');
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Announcements list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Create announcement ──────────────────────────────────────────────────────
-router.post('/', auth, async (req, res) => {
+// ─── Create announcement (admin only) ─────────────────────────────────────────
+router.post('/', auth, requireRole('admin'), async (req, res) => {
   const { title, body, type, author, barangay, link } = req.body;
   if (!title?.trim() || !body?.trim())
     return res.status(400).json({ error: 'Title and body are required' });
@@ -26,12 +28,13 @@ router.post('/', auth, async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM announcements WHERE id = ?', [result.insertId]);
     res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Announcement create error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Update announcement ──────────────────────────────────────────────────────
-router.put('/:id', auth, async (req, res) => {
+// ─── Update announcement (admin only) ─────────────────────────────────────────
+router.put('/:id', auth, requireRole('admin'), async (req, res) => {
   const { title, body, type, author, barangay, link } = req.body;
   try {
     await pool.query(
@@ -49,17 +52,19 @@ router.put('/:id', auth, async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM announcements WHERE id = ?', [req.params.id]);
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Announcement update error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Delete announcement ──────────────────────────────────────────────────────
-router.delete('/:id', auth, async (req, res) => {
+// ─── Delete announcement (admin only) ─────────────────────────────────────────
+router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
   try {
     await pool.query('DELETE FROM announcements WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Announcement delete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

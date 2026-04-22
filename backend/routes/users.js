@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool   = require('../db');
 const auth   = require('../middleware/auth');
+const requireRole = require('../middleware/requireRole');
 const { notifyUser } = require('../services/notificationService');
 
 const safe = (user) => {
@@ -8,32 +9,42 @@ const safe = (user) => {
   return rest;
 };
 
-// ─── List all non-admin users ─────────────────────────────────────────────────
-router.get('/', auth, async (req, res) => {
+// ─── List all non-admin users (admin only) ────────────────────────────────────
+router.get('/', auth, requireRole('admin'), async (req, res) => {
   try {
     const [rows] = await pool.query(
       "SELECT * FROM users WHERE role = 'citizen' ORDER BY created_at DESC"
     );
     res.json(rows.map(safe));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Users list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Get single user ──────────────────────────────────────────────────────────
+// ─── Get single user (auth required, ownership or admin check) ────────────────
 router.get('/:id', auth, async (req, res) => {
   try {
+    if (req.user.role !== 'admin' && req.user.id !== parseInt(req.params.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'User not found' });
     res.json(safe(rows[0]));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('User fetch error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Update user ──────────────────────────────────────────────────────────────
+// ─── Update user (auth required, ownership check) ─────────────────────────────
 router.put('/:id', auth, async (req, res) => {
-  const { name, phone, barangay, id_type, id_number, id_image_url, verification_status, submitted_at } = req.body;
+  const { name, phone, barangay, id_type, id_number, id_image_url, submitted_at } = req.body;
+  
+  if (req.user.id !== parseInt(req.params.id)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
   try {
     if (id_number) {
       const [existingID] = await pool.query('SELECT id FROM users WHERE id_number = ? AND id != ?', [id_number, req.params.id]);
@@ -48,21 +59,21 @@ router.put('/:id', auth, async (req, res) => {
         id_type             = COALESCE(?, id_type),
         id_number           = COALESCE(?, id_number),
         id_image_url        = COALESCE(?, id_image_url),
-        verification_status = COALESCE(?, verification_status),
         submitted_at        = COALESCE(?, submitted_at),
         updated_at          = NOW()
        WHERE id = ?`,
-      [name, phone, barangay, id_type, id_number, id_image_url, verification_status, submitted_at, req.params.id]
+      [name, phone, barangay, id_type, id_number, id_image_url, submitted_at, req.params.id]
     );
     const [rows] = await pool.query('SELECT * FROM users WHERE id = ?', [req.params.id]);
     res.json(safe(rows[0]));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('User update error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Verify user ──────────────────────────────────────────────────────────────
-router.patch('/:id/verify', auth, async (req, res) => {
+// ─── Verify user (admin only) ─────────────────────────────────────────────────
+router.patch('/:id/verify', auth, requireRole('admin'), async (req, res) => {
   try {
     await pool.query(
       `UPDATE users SET verification_status='verified', is_verified=1,
@@ -77,12 +88,13 @@ router.patch('/:id/verify', auth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('User verify error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Reject user ──────────────────────────────────────────────────────────────
-router.patch('/:id/reject', auth, async (req, res) => {
+// ─── Reject user (admin only) ─────────────────────────────────────────────────
+router.patch('/:id/reject', auth, requireRole('admin'), async (req, res) => {
   const { reason } = req.body;
   if (!reason) return res.status(400).json({ error: 'Rejection reason required' });
   try {
@@ -99,12 +111,13 @@ router.patch('/:id/reject', auth, async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('User reject error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Revoke verification ──────────────────────────────────────────────────────
-router.patch('/:id/revoke', auth, async (req, res) => {
+// ─── Revoke verification (admin only) ─────────────────────────────────────────
+router.patch('/:id/revoke', auth, requireRole('admin'), async (req, res) => {
   try {
     await pool.query(
       `UPDATE users SET verification_status='unverified', is_verified=0,
@@ -113,18 +126,23 @@ router.patch('/:id/revoke', auth, async (req, res) => {
     );
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('User revoke error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Update FCM token (no auth required, called on app launch) ────────────────
-router.put('/:id/fcm-token', async (req, res) => {
+// ─── Update FCM token (auth required, ownership check) ────────────────────────
+router.put('/:id/fcm-token', auth, async (req, res) => {
   const { fcm_token } = req.body;
+  if (req.user.id !== parseInt(req.params.id)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   try {
     await pool.query('UPDATE users SET fcm_token=?, updated_at=NOW() WHERE id=?', [fcm_token, req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('FCM Token update error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

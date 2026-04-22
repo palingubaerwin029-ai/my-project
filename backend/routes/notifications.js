@@ -1,24 +1,10 @@
 const express = require("express");
 const router = express.Router();
 const db = require("../db");
-
-// Middleware to authenticate user and extract user_id from token
-const authUser = (req, res, next) => {
-  const token = req.headers["authorization"];
-  if (!token) return res.status(401).json({ error: "Unauthorized" });
-
-  try {
-    const jwt = require("jsonwebtoken");
-    const payload = jwt.verify(token.split(" ")[1], process.env.JWT_SECRET || "default_secret_key");
-    req.user = payload;
-    next();
-  } catch {
-    return res.status(401).json({ error: "Invalid token" });
-  }
-};
+const auth = require("../middleware/auth");
 
 // GET /api/notifications - Get all notifications for current user
-router.get("/", authUser, async (req, res) => {
+router.get("/", auth, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50",
@@ -32,7 +18,7 @@ router.get("/", authUser, async (req, res) => {
 });
 
 // GET /api/notifications/unread-count - Get count of unread notifications
-router.get("/unread-count", authUser, async (req, res) => {
+router.get("/unread-count", auth, async (req, res) => {
   try {
     const [rows] = await db.query(
       "SELECT COUNT(*) as unreadCount FROM notifications WHERE user_id = ? AND is_read = false",
@@ -46,7 +32,7 @@ router.get("/unread-count", authUser, async (req, res) => {
 });
 
 // PUT /api/notifications/:id/read - Mark single notification as read
-router.put("/:id/read", authUser, async (req, res) => {
+router.put("/:id/read", auth, async (req, res) => {
   try {
     const { id } = req.params;
     await db.query(
@@ -61,7 +47,7 @@ router.put("/:id/read", authUser, async (req, res) => {
 });
 
 // PUT /api/notifications/read-all - Mark all notifications as read for current user
-router.put("/read-all", authUser, async (req, res) => {
+router.put("/read-all", auth, async (req, res) => {
   try {
     await db.query(
       "UPDATE notifications SET is_read = true WHERE user_id = ?",

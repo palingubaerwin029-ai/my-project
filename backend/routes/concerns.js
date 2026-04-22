@@ -1,6 +1,7 @@
 const router = require('express').Router();
 const pool   = require('../db');
 const auth   = require('../middleware/auth');
+const requireRole = require('../middleware/requireRole');
 const upload = require('../middleware/upload');
 const fs     = require('fs');
 const path   = require('path');
@@ -13,45 +14,58 @@ const deleteImageFile = (imageUrl) => {
   try {
     const filename = imageUrl.split('/uploads/')[1];
     if (filename) {
+      // Basic traversal check: filename shouldn't contain ".."
+      if (filename.includes('..')) return;
       const filePath = path.join(__dirname, '..', 'uploads', filename);
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
   } catch (_) {}
 };
 
-// ─── List all concerns ────────────────────────────────────────────────────────
-router.get('/', async (req, res) => {
+// ─── List all concerns (auth required) ────────────────────────────────────────
+router.get('/', auth, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM concerns ORDER BY created_at DESC');
+    
+    // If not admin, strip potentially sensitive user info
+    if (req.user.role !== 'admin') {
+      const sanitized = rows.map(r => {
+        const { user_id, user_name, user_barangay, ...rest } = r;
+        return rest;
+      });
+      return res.json(sanitized);
+    }
+    
     res.json(rows);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Concerns list error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Get single concern ───────────────────────────────────────────────────────
-router.get('/:id', async (req, res) => {
+// ─── Get single concern (auth required) ───────────────────────────────────────
+router.get('/:id', auth, async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM concerns WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Concern not found' });
 
-    // Check if requesting user has upvoted
     const concern = rows[0];
-    if (req.headers.authorization) {
-      const jwt = require('jsonwebtoken');
-      try {
-        const token   = req.headers.authorization.split(' ')[1];
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'citivoice_jwt_secret_key_2024');
-        const [up]    = await pool.query(
-          'SELECT id FROM concern_upvotes WHERE concern_id=? AND user_id=?',
-          [concern.id, decoded.id]
-        );
-        concern.is_upvoted_by_me = up.length > 0;
-      } catch (_) {}
+    const [up]    = await pool.query(
+      'SELECT id FROM concern_upvotes WHERE concern_id=? AND user_id=?',
+      [concern.id, req.user.id]
+    );
+    concern.is_upvoted_by_me = up.length > 0;
+
+    // If not admin, strip potentially sensitive user info
+    if (req.user.role !== 'admin') {
+      const { user_id, user_name, user_barangay, ...rest } = concern;
+      return res.json(rest);
     }
+
     res.json(concern);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Concern fetch error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
@@ -84,12 +98,13 @@ router.post('/', auth, upload.single('image'), async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM concerns WHERE id = ?', [result.insertId]);
     res.status(201).json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Concern submit error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Update concern (admin: status, admin_note) ────────────────────────────────
-router.put('/:id', auth, async (req, res) => {
+// ─── Update concern (admin only: status, admin_note) ──────────────────────────
+router.put('/:id', auth, requireRole('admin'), async (req, res) => {
   const { status, admin_note } = req.body;
   try {
     const [existing] = await pool.query(`
@@ -132,12 +147,13 @@ router.put('/:id', auth, async (req, res) => {
     const [rows] = await pool.query('SELECT * FROM concerns WHERE id = ?', [req.params.id]);
     res.json(rows[0]);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Concern update error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 
-// ─── Delete concern ───────────────────────────────────────────────────────────
-router.delete('/:id', auth, async (req, res) => {
+// ─── Delete concern (admin only) ──────────────────────────────────────────────
+router.delete('/:id', auth, requireRole('admin'), async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT image_url FROM concerns WHERE id = ?', [req.params.id]);
     if (!rows.length) return res.status(404).json({ error: 'Concern not found' });
@@ -146,7 +162,8 @@ router.delete('/:id', auth, async (req, res) => {
     await pool.query('DELETE FROM concerns WHERE id = ?', [req.params.id]);
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('Concern delete error:', err);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
 

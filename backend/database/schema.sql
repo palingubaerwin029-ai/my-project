@@ -107,17 +107,6 @@ CREATE TABLE IF NOT EXISTS notifications (
 
 -- ─── Essential Bootstrap Data ───────────────────────────────────────────────
 
--- Default admin account (Login: admin@citivoice.gov.ph / Pass: admin123)
-INSERT INTO users (name, email, password_hash, role, verification_status, is_verified)
-VALUES (
-  'Admin',
-  'admin@citivoice.gov.ph',
-  '$2a$10$N38TYy2iCILpTRuo5GmBqufH1KC3b88sBVc.fk.inV.ovZAnVCJU.',
-  'admin',
-  'verified',
-  1
-) ON DUPLICATE KEY UPDATE updated_at = NOW();
-
 -- Comprehensive Barangay list for Kabankalan City
 INSERT INTO barangays (name) VALUES
   ('Barangay 1 (Poblacion)'), ('Barangay 2 (Poblacion)'), ('Barangay 3 (Poblacion)'),
@@ -128,3 +117,4 @@ INSERT INTO barangays (name) VALUES
   ('Oringao'), ('Orong'), ('Pinaguinpinan'), ('Salong'), ('Tabugon'), ('Tagoc'),
   ('Tagukon'), ('Talubangi'), ('Tampalon'), ('Tan-Awan'), ('Tapi')
 ON DUPLICATE KEY UPDATE updated_at = NOW();
+

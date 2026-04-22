@@ -72,6 +72,20 @@ const sendSMS = async (to, messageBody) => {
 };
 
 /**
+ * Simple HTML escaping to prevent injection in emails
+ */
+const escapeHTML = (str) => {
+  if (!str) return '';
+  return str.replace(/[&<>"']/g, (m) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[m]));
+};
+
+/**
  * Unified command to fire both Email and SMS to a user's known contacts
  * @param {Object} user 
  * @param {String} subject 
@@ -80,12 +94,15 @@ const sendSMS = async (to, messageBody) => {
 const notifyUser = async (user, subject, message) => {
   if (!user) return;
   
+  const safeName = escapeHTML(user.name || 'Citizen');
+  const safeMsg  = escapeHTML(message);
+
   // Format HTML nicely for emails
   const htmlBody = `
     <div style="font-family: Arial, sans-serif; padding: 20px; background-color: #f4f6f8; color: #333; max-width: 600px; margin: auto; border-radius: 8px;">
       <h2 style="color: #1A6BFF;">CitiVoice Update</h2>
-      <p style="font-size: 16px; line-height: 1.5;">Hello ${user.name || 'Citizen'},</p>
-      <p style="font-size: 16px; line-height: 1.5;">${message}</p>
+      <p style="font-size: 16px; line-height: 1.5;">Hello ${safeName},</p>
+      <p style="font-size: 16px; line-height: 1.5;">${safeMsg}</p>
       <hr style="border: none; border-top: 1px solid #ddd; margin: 30px 0;" />
       <p style="font-size: 12px; color: #888;">This is an automated message from the CitiVoice Platform.</p>
     </div>
